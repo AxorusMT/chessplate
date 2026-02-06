@@ -321,6 +321,12 @@ impl ChessApp {
         }
     }
 
+    fn clear_arrows(&mut self) {
+        self.drawn_arrows.clear();
+        self.arrow_drag_start = None;
+        self.arrow_drag_current = None;
+    }
+
     fn handle_arrow_input(&mut self, ctx: &egui::Context, board_rect: Rect, square_size: f32) {
         if ctx.input(|i| i.pointer.secondary_pressed()) {
             let start_square = ctx.input(|i| {
@@ -553,6 +559,13 @@ impl ChessApp {
 
 impl eframe::App for ChessApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let should_clear_arrows = ctx.input(|i| {
+            i.key_pressed(egui::Key::Escape) || i.pointer.button_pressed(PointerButton::Primary)
+        });
+        if should_clear_arrows {
+            self.clear_arrows();
+        }
+
         self.poll_engine_result();
         self.maybe_start_engine_turn();
 
