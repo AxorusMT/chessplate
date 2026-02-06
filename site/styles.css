@@ -103,17 +103,12 @@ body {
   color: var(--ink);
 }
 
-.brand-mark {
+.brand-logo {
   width: 2rem;
   height: 2rem;
-  display: inline-grid;
-  place-items: center;
-  font-weight: 700;
-  font-size: 0.8rem;
-  font-family: "Space Mono", monospace;
-  background: linear-gradient(160deg, #ffffff, #d4e4fd);
-  border: 1px solid #b3caea;
+  display: block;
   border-radius: 0.65rem;
+  box-shadow: 0 8px 16px rgba(20, 42, 73, 0.2);
 }
 
 .brand-text {
@@ -577,6 +572,18 @@ code {
   margin: 0;
   font-size: 0.82rem;
   color: #5c708b;
+}
+
+.footer-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.48rem;
+}
+
+.footer-logo {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 0.26rem;
 }
 
 .reveal {

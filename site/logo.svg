@@ -1,0 +1,67 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Chessplate Logo</title>
+  <desc id="desc">Stylized knight over a board with an analysis arrow.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#101f33"/>
+      <stop offset="55%" stop-color="#1f4470"/>
+      <stop offset="100%" stop-color="#2f6793"/>
+    </linearGradient>
+    <linearGradient id="boardLight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#d8e4f6"/>
+      <stop offset="100%" stop-color="#c8d8ef"/>
+    </linearGradient>
+    <linearGradient id="boardDark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#58759b"/>
+      <stop offset="100%" stop-color="#436286"/>
+    </linearGradient>
+    <linearGradient id="lineGlow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#79ffe0"/>
+      <stop offset="100%" stop-color="#68d8ff"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#05101d" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <rect x="34" y="34" width="444" height="444" rx="102" fill="url(#bg)"/>
+  <circle cx="402" cy="92" r="96" fill="#6de4ff" opacity="0.16"/>
+  <circle cx="110" cy="420" r="140" fill="#ffc994" opacity="0.11"/>
+
+  <g filter="url(#softShadow)">
+    <rect x="104" y="124" width="304" height="304" rx="56" fill="#0f2237"/>
+    <g>
+      <rect x="128" y="148" width="64" height="64" rx="10" fill="url(#boardLight)"/>
+      <rect x="192" y="148" width="64" height="64" rx="10" fill="url(#boardDark)"/>
+      <rect x="256" y="148" width="64" height="64" rx="10" fill="url(#boardLight)"/>
+      <rect x="320" y="148" width="64" height="64" rx="10" fill="url(#boardDark)"/>
+
+      <rect x="128" y="212" width="64" height="64" rx="10" fill="url(#boardDark)"/>
+      <rect x="192" y="212" width="64" height="64" rx="10" fill="url(#boardLight)"/>
+      <rect x="256" y="212" width="64" height="64" rx="10" fill="url(#boardDark)"/>
+      <rect x="320" y="212" width="64" height="64" rx="10" fill="url(#boardLight)"/>
+
+      <rect x="128" y="276" width="64" height="64" rx="10" fill="url(#boardLight)"/>
+      <rect x="192" y="276" width="64" height="64" rx="10" fill="url(#boardDark)"/>
+      <rect x="256" y="276" width="64" height="64" rx="10" fill="url(#boardLight)"/>
+      <rect x="320" y="276" width="64" height="64" rx="10" fill="url(#boardDark)"/>
+
+      <rect x="128" y="340" width="64" height="64" rx="10" fill="url(#boardDark)"/>
+      <rect x="192" y="340" width="64" height="64" rx="10" fill="url(#boardLight)"/>
+      <rect x="256" y="340" width="64" height="64" rx="10" fill="url(#boardDark)"/>
+      <rect x="320" y="340" width="64" height="64" rx="10" fill="url(#boardLight)"/>
+    </g>
+  </g>
+
+  <g transform="translate(160 132) scale(4.4)">
+    <path d="M22 10c10.5 1 16.5 8 16 29H15c0-9 10-6.5 8-21" fill="#f6fbff" stroke="#10233a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M24 18c.38 2.91-5.55 7.37-8 9-3 2-2.82 4.34-5 4-1.042-.94 1.41-3.04 0-3-1 0 .19 1.23-1 2-1 0-4.003 1-4-4 0-2 6-12 6-12s1.89-1.9 2-3.5c-.73-.994-.5-2-.5-3 1-1 3 2.5 3 2.5h2s.78-1.992 2.5-3c1 0 1 3 1 3" fill="#f6fbff" stroke="#10233a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="8.9" cy="25.4" r="1.4" fill="#0f2237"/>
+    <ellipse cx="14.2" cy="15.5" rx="1.2" ry="2.1" transform="rotate(27 14.2 15.5)" fill="#0f2237"/>
+  </g>
+
+  <path d="M108 366C184 312 232 292 282 272C320 257 348 224 386 178" fill="none" stroke="url(#lineGlow)" stroke-width="18" stroke-linecap="round"/>
+  <path d="M377 156L430 150L403 198Z" fill="#79ffe0"/>
+
+  <rect x="34" y="34" width="444" height="444" rx="102" fill="none" stroke="#9ad7ff" stroke-opacity="0.27"/>
+</svg>

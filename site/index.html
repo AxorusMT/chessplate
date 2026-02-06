@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Chessplate | Rust Chess Bot Desktop App</title>
   <meta name="description" content="Chessplate is a native Rust chess app with a local bot, adjustable Elo, rich game insights, line drawing, PGN/FEN copy tools, and 90 visual themes.">
+  <link rel="icon" type="image/svg+xml" href="logo.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Sora:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -17,7 +18,7 @@
   <header class="topbar">
     <div class="container topbar-inner">
       <a class="brand" href="#top">
-        <span class="brand-mark">CP</span>
+        <img class="brand-logo" src="logo.svg" alt="Chessplate logo">
         <span class="brand-text">Chessplate</span>
       </a>
       <nav class="nav-links">
@@ -185,7 +186,10 @@
 
   <footer class="footer">
     <div class="container footer-inner">
-      <p>Chessplate</p>
+      <p class="footer-brand">
+        <img class="footer-logo" src="logo.svg" alt="">
+        <span>Chessplate</span>
+      </p>
       <p>Rust-powered chess engine and native desktop GUI.</p>
     </div>
   </footer>
