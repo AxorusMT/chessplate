@@ -23,6 +23,8 @@
       </a>
       <nav class="nav-links">
         <a href="#features">Features</a>
+        <a href="#engine-docs">Engine Docs</a>
+        <a href="#how-to-play">How to Play</a>
         <a href="#insights">Insights</a>
         <a href="#themes">Themes</a>
         <a href="#get-started">Get Started</a>
@@ -115,6 +117,109 @@
       </div>
     </section>
 
+    <section id="engine-docs" class="section reveal">
+      <div class="container">
+        <div class="section-heading">
+          <p class="eyebrow">Engine Documentation</p>
+          <h2>How Chessplate's engine actually works.</h2>
+        </div>
+        <div class="doc-grid">
+          <article class="doc-card">
+            <h3>Search Pipeline</h3>
+            <ul class="bullet-list">
+              <li>Root move generation starts from all legal moves.</li>
+              <li>Iterative deepening runs from depth 1 up to an Elo-dependent depth cap.</li>
+              <li>Each depth uses negamax with alpha-beta pruning to skip losing branches fast.</li>
+              <li>If a position is tactical or noisy, quiescence search extends only captures/check sequences.</li>
+            </ul>
+          </article>
+          <article class="doc-card">
+            <h3>Move Ordering</h3>
+            <ul class="bullet-list">
+              <li>Promotions are ranked highest.</li>
+              <li>Captures are sorted with a simple MVV/LVA-style heuristic.</li>
+              <li>Castling gets a bonus to improve king safety development.</li>
+              <li>Best moves from previous iteration are searched first at the next depth.</li>
+            </ul>
+          </article>
+          <article class="doc-card">
+            <h3>Evaluation Model</h3>
+            <ul class="bullet-list">
+              <li>Material values: pawn 100, knight 320, bishop 330, rook 500, queen 900.</li>
+              <li>Piece-square tables reward active placement and center control.</li>
+              <li>Bishop pair bonus is applied for both colors.</li>
+              <li>A small side-to-move initiative bonus is added to reduce passivity.</li>
+            </ul>
+          </article>
+          <article class="doc-card">
+            <h3>Elo Simulation</h3>
+            <ul class="bullet-list">
+              <li>The Elo slider maps to depth, time budget, and node budget.</li>
+              <li>Lower Elo injects bounded centipawn noise into top candidates.</li>
+              <li>Higher Elo reduces noise and increases search resources.</li>
+              <li>Range is configured from 600 to 2800 in the app UI.</li>
+            </ul>
+          </article>
+          <article class="doc-card doc-wide">
+            <h3>Live Telemetry: Search Prism</h3>
+            <p>Search Prism displays depth growth bars, evaluation trend, node throughput, stability, volatility, and candidate move lead gap while the engine searches.</p>
+            <p>This lets you see confidence and instability in real time instead of only seeing a final move choice.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="how-to-play" class="section section-light reveal">
+      <div class="container">
+        <div class="section-heading">
+          <p class="eyebrow">How To Play Chess</p>
+          <h2>Quick rules and fundamentals for new players.</h2>
+        </div>
+        <div class="learn-grid">
+          <article class="learn-card">
+            <h3>Goal</h3>
+            <p>Win by checkmating the opponent king: attack it so it has no legal escape, block, or capture response.</p>
+          </article>
+          <article class="learn-card">
+            <h3>Piece Movement</h3>
+            <ul class="bullet-list">
+              <li>King: one square any direction.</li>
+              <li>Queen: any number of squares, straight or diagonal.</li>
+              <li>Rook: any number of squares, straight lines.</li>
+              <li>Bishop: any number of squares, diagonals.</li>
+              <li>Knight: L-shape jumps (2 + 1), can hop over pieces.</li>
+              <li>Pawn: one step forward, captures diagonally; two-step from starting rank.</li>
+            </ul>
+          </article>
+          <article class="learn-card">
+            <h3>Special Rules</h3>
+            <ul class="bullet-list">
+              <li>Castling: king + rook move together once if squares are clear and not under attack.</li>
+              <li>En passant: a pawn can capture a two-step pawn as if it moved one square, immediately on next move only.</li>
+              <li>Promotion: a pawn reaching the last rank becomes queen, rook, bishop, or knight.</li>
+            </ul>
+          </article>
+          <article class="learn-card">
+            <h3>Game Results</h3>
+            <ul class="bullet-list">
+              <li>Checkmate: win for the attacking side.</li>
+              <li>Stalemate: draw when side to move has no legal moves but is not in check.</li>
+              <li>Fifty-move rule: draw if no pawn move or capture happens for fifty moves each side.</li>
+            </ul>
+          </article>
+          <article class="learn-card learn-wide">
+            <h3>Starter Principles</h3>
+            <ul class="bullet-list">
+              <li>Develop knights and bishops early; do not move the same piece repeatedly without reason.</li>
+              <li>Castle early to protect your king and connect rooks.</li>
+              <li>Fight for center squares and avoid hanging pieces to one-move tactics.</li>
+              <li>Before every move, check: opponent threats, your checks/captures, king safety.</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
     <section id="insights" class="section reveal">
       <div class="container insights-layout">
         <div>
@@ -127,7 +232,7 @@
           <ul class="bullet-list">
             <li>Top candidate lines shown with centipawn score and relative confidence bars.</li>
             <li>Depth and node speed visible during calculation, not after the move is played.</li>
-            <li>Move history recorded in SAN so you can read games naturally.</li>
+            <li>Move list is shown in coordinate notation, with full SAN notation available in PGN export.</li>
           </ul>
         </div>
         <div class="insight-cards">

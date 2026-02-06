@@ -440,6 +440,69 @@ body {
   margin-top: 0.5rem;
 }
 
+.doc-grid {
+  display: grid;
+  gap: 0.78rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.doc-card {
+  background: linear-gradient(150deg, #ffffff, #f4f9ff);
+  border: 1px solid #cfdeef;
+  border-radius: var(--radius-md);
+  padding: 0.95rem;
+  box-shadow: var(--shadow-md);
+}
+
+.doc-card h3 {
+  margin: 0;
+  font-size: 1.04rem;
+}
+
+.doc-card p {
+  margin: 0.55rem 0 0;
+  color: var(--ink-soft);
+}
+
+.doc-card .bullet-list {
+  margin-top: 0.6rem;
+}
+
+.doc-wide {
+  grid-column: 1 / -1;
+}
+
+.learn-grid {
+  display: grid;
+  gap: 0.78rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.learn-card {
+  background: linear-gradient(160deg, #ffffff, #f3f8ff);
+  border: 1px solid #cfdeef;
+  border-radius: var(--radius-md);
+  padding: 0.95rem;
+}
+
+.learn-card h3 {
+  margin: 0;
+  font-size: 1.04rem;
+}
+
+.learn-card p {
+  margin: 0.55rem 0 0;
+  color: var(--ink-soft);
+}
+
+.learn-card .bullet-list {
+  margin-top: 0.6rem;
+}
+
+.learn-wide {
+  grid-column: 1 / -1;
+}
+
 .insight-cards {
   display: grid;
   gap: 0.7rem;
@@ -612,6 +675,11 @@ code {
 
   .insights-layout,
   .get-started {
+    grid-template-columns: 1fr;
+  }
+
+  .doc-grid,
+  .learn-grid {
     grid-template-columns: 1fr;
   }
 }

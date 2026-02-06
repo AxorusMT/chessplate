@@ -54,6 +54,7 @@ pub struct ChessApp {
     search_snapshots: Vec<SearchSnapshot>,
     search_root: Option<Position>,
     copy_feedback: Option<(String, Instant)>,
+    queued_premove: Option<Move>,
 }
 
 impl ChessApp {
@@ -78,6 +79,7 @@ impl ChessApp {
             search_snapshots: Vec::new(),
             search_root: None,
             copy_feedback: None,
+            queued_premove: None,
         }
     }
 
@@ -95,8 +97,7 @@ impl ChessApp {
 
     fn new_game(&mut self) {
         self.position = Position::startpos();
-        self.selected_square = None;
-        self.selected_moves.clear();
+        self.clear_selection();
         self.move_log.clear();
         self.move_history.clear();
         self.thinking = false;
@@ -107,6 +108,7 @@ impl ChessApp {
         self.search_snapshots.clear();
         self.search_root = None;
         self.copy_feedback = None;
+        self.queued_premove = None;
         self.sync_status();
     }
 
@@ -153,6 +155,7 @@ impl ChessApp {
             self.thinking = false;
             if let Some(mv) = engine_move {
                 self.apply_move(mv);
+                self.try_execute_premove();
             } else {
                 self.sync_status();
             }
@@ -186,8 +189,7 @@ impl ChessApp {
         self.position.make_move(mv);
         self.move_log.push(notation);
         self.move_history.push(mv);
-        self.selected_square = None;
-        self.selected_moves.clear();
+        self.clear_selection();
         self.sync_status();
     }
 
@@ -238,28 +240,86 @@ impl ChessApp {
         self.copy_feedback = Some((message.to_owned(), Instant::now()));
     }
 
-    fn set_selection(&mut self, square: u8) {
+    fn clear_selection(&mut self) {
+        self.selected_square = None;
+        self.selected_moves.clear();
+    }
+
+    fn preferred_move(candidates: &[Move]) -> Move {
+        candidates
+            .iter()
+            .copied()
+            .find(|mv| mv.promotion == Some(PieceKind::Queen))
+            .unwrap_or(candidates[0])
+    }
+
+    fn set_selection_from_legal(&mut self, square: u8, legal: Vec<Move>) {
         self.selected_square = Some(square);
-        let legal = self.position.legal_moves();
         self.selected_moves = legal
             .into_iter()
             .filter(|mv| mv.from == square)
             .collect::<Vec<_>>();
 
         if self.selected_moves.is_empty() {
-            self.selected_square = None;
+            self.clear_selection();
         }
     }
 
-    fn handle_square_click(&mut self, square: u8) {
+    fn set_selection(&mut self, square: u8) {
+        self.set_selection_from_legal(square, self.position.legal_moves());
+    }
+
+    fn set_premove_selection(&mut self, square: u8) {
+        let mut preview = self.position.clone();
+        preview.side_to_move = self.human_color;
+        self.set_selection_from_legal(square, preview.legal_moves());
+    }
+
+    fn try_execute_premove(&mut self) -> bool {
+        let Some(premove) = self.queued_premove else {
+            return false;
+        };
+
+        self.queued_premove = None;
+        self.clear_selection();
+
+        if self.is_game_over() || !self.is_human_turn() {
+            return false;
+        }
+
+        let legal = self.position.legal_moves();
+        let candidates = legal
+            .into_iter()
+            .filter(|mv| mv.from == premove.from && mv.to == premove.to)
+            .collect::<Vec<_>>();
+
+        if candidates.is_empty() {
+            return false;
+        }
+
+        let chosen = if let Some(promotion) = premove.promotion {
+            candidates
+                .iter()
+                .copied()
+                .find(|mv| mv.promotion == Some(promotion))
+                .unwrap_or_else(|| Self::preferred_move(&candidates))
+        } else {
+            Self::preferred_move(&candidates)
+        };
+
+        self.apply_move(chosen);
+        self.set_copy_feedback("Premove played");
+        true
+    }
+
+    fn handle_live_turn_click(&mut self, square: u8) {
         if self.thinking || self.is_game_over() || !self.is_human_turn() {
             return;
         }
 
         if let Some(from_square) = self.selected_square {
             if from_square == square {
-                self.selected_square = None;
-                self.selected_moves.clear();
+                self.clear_selection();
                 return;
             }
 
@@ -271,11 +331,8 @@ impl ChessApp {
                 .collect::<Vec<_>>();
 
             if !candidates.is_empty() {
-                let chosen = candidates
-                    .iter()
-                    .copied()
-                    .find(|mv| mv.promotion == Some(PieceKind::Queen))
-                    .unwrap_or(candidates[0]);
+                let chosen = Self::preferred_move(&candidates);
+                self.queued_premove = None;
                 self.apply_move(chosen);
                 return;
             }
@@ -285,12 +342,61 @@ impl ChessApp {
             if piece.color == self.human_color {
                 self.set_selection(square);
             } else {
-                self.selected_square = None;
-                self.selected_moves.clear();
+                self.clear_selection();
             }
         } else {
-            self.selected_square = None;
-            self.selected_moves.clear();
+            self.clear_selection();
+        }
+    }
+
+    fn handle_premove_click(&mut self, square: u8) {
+        if self.is_game_over() || self.is_human_turn() {
+            return;
+        }
+
+        if let Some(from_square) = self.selected_square {
+            if from_square == square {
+                self.clear_selection();
+                return;
+            }
+
+            let candidates = self
+                .selected_moves
+                .iter()
+                .copied()
+                .filter(|mv| mv.from == from_square && mv.to == square)
+                .collect::<Vec<_>>();
+
+            if !candidates.is_empty() {
+                let chosen = Self::preferred_move(&candidates);
+                if self.queued_premove == Some(chosen) {
+                    self.queued_premove = None;
+                    self.set_copy_feedback("Premove cleared");
+                } else {
+                    self.queued_premove = Some(chosen);
+                    self.set_copy_feedback("Premove queued");
+                }
+                self.clear_selection();
+                return;
+            }
+        }
+
+        if let Some(piece) = self.position.piece_at(square) {
+            if piece.color == self.human_color {
+                self.set_premove_selection(square);
+            } else {
+                self.clear_selection();
+            }
+        } else {
+            self.clear_selection();
+        }
+    }
+
+    fn handle_square_click(&mut self, square: u8) {
+        if self.is_human_turn() {
+            self.handle_live_turn_click(square);
+        } else {
+            self.handle_premove_click(square);
         }
     }
 
@@ -476,6 +582,37 @@ impl ChessApp {
             let from = self.square_center(from_square, board_rect, square_size);
             let to = self.square_center(to_square, board_rect, square_size);
             Self::draw_arrow(&painter, from, to, palette.arrow_preview, 5.0);
+        }
+    }
+
+    fn paint_premove_overlay(
+        &self,
+        ui: &egui::Ui,
+        board_rect: Rect,
+        square_size: f32,
+        palette: ThemePalette,
+    ) {
+        let Some(premove) = self.queued_premove else {
+            return;
+        };
+
+        let painter = ui.painter_at(board_rect);
+        let from = self.square_center(premove.from, board_rect, square_size);
+        let to = self.square_center(premove.to, board_rect, square_size);
+        Self::draw_arrow(
+            &painter,
+            from,
+            to,
+            palette.arrow_preview.gamma_multiply(0.85),
+            4.0,
+        );
+
+        let marker_size = Vec2::splat((square_size - 8.0).max(12.0));
+        let stroke = Stroke::new(2.0, palette.arrow_preview.gamma_multiply(0.95));
+        for square in [premove.from, premove.to] {
+            let center = self.square_center(square, board_rect, square_size);
+            let marker = Rect::from_center_size(center, marker_size);
+            painter.rect_stroke(marker, 6.0, stroke);
         }
     }
 
@@ -772,6 +909,17 @@ impl ChessApp {
         if let Some((message, _)) = &self.copy_feedback {
             ui.label(RichText::new(message).small().italics());
         }
+        if let Some(premove) = self.queued_premove {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(format!("Queued premove: {}", move_to_coord(premove)));
+                if ui.small_button("Clear").clicked() {
+                    self.queued_premove = None;
+                    self.clear_selection();
+                }
+            });
+        } else if !self.is_human_turn() && !self.is_game_over() {
+            ui.label(RichText::new("Premove: queue your move while the engine thinks.").small());
+        }
 
         ui.separator();
         ui.label("Moves");
@@ -864,6 +1012,7 @@ impl ChessApp {
 
         let board_rect = board_response.rect;
         self.handle_arrow_input(ui.ctx(), board_rect, square_size);
+        self.paint_premove_overlay(ui, board_rect, square_size, palette);
         self.paint_arrows(ui, board_rect, square_size, palette);
     }
 }
