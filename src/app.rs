@@ -3,7 +3,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::Duration;
 
-use eframe::egui::{self, Color32, RichText, Vec2};
+use eframe::egui::{self, Color32, PointerButton, Pos2, Rect, RichText, Stroke, Vec2};
 use resvg::{tiny_skia, usvg};
 
 use crate::chess::{
@@ -54,6 +54,12 @@ struct MaterialSnapshot {
     total_piece_count: u8,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DrawnArrow {
+    from: u8,
+    to: u8,
+}
+
 pub struct ChessApp {
     position: Position,
     selected_square: Option<u8>,
@@ -65,6 +71,9 @@ pub struct ChessApp {
     thinking: bool,
     engine_rx: Option<Receiver<Option<Move>>>,
     piece_textures: HashMap<Piece, egui::TextureHandle>,
+    drawn_arrows: Vec<DrawnArrow>,
+    arrow_drag_start: Option<u8>,
+    arrow_drag_current: Option<u8>,
 }
 
 impl ChessApp {
@@ -81,6 +90,9 @@ impl ChessApp {
             thinking: false,
             engine_rx: None,
             piece_textures: load_piece_textures(&cc.egui_ctx),
+            drawn_arrows: Vec::new(),
+            arrow_drag_start: None,
+            arrow_drag_current: None,
         }
     }
 
@@ -95,6 +107,9 @@ impl ChessApp {
         self.move_log.clear();
         self.thinking = false;
         self.engine_rx = None;
+        self.drawn_arrows.clear();
+        self.arrow_drag_start = None;
+        self.arrow_drag_current = None;
         self.sync_status();
     }
 
@@ -236,13 +251,157 @@ impl ChessApp {
         }
     }
 
-    fn board_square_from_display(&self, display_file: usize, display_rank: usize) -> u8 {
-        let file = display_file as i8;
-        let rank = display_rank as i8;
+    fn square_from_board_grid(&self, column: usize, row: usize) -> u8 {
+        let file = match self.human_color {
+            Color::White => column as u8,
+            Color::Black => 7_u8.saturating_sub(column as u8),
+        };
 
-        match self.human_color {
-            Color::White => (rank * 8 + file) as u8,
-            Color::Black => ((7 - rank) * 8 + (7 - file)) as u8,
+        let rank = match self.human_color {
+            Color::White => 7_u8.saturating_sub(row as u8),
+            Color::Black => row as u8,
+        };
+
+        (rank * 8) + file
+    }
+
+    fn board_grid_from_square(&self, square: u8) -> (usize, usize) {
+        let file = square % 8;
+        let rank = square / 8;
+
+        let column = match self.human_color {
+            Color::White => file,
+            Color::Black => 7 - file,
+        } as usize;
+
+        let row = match self.human_color {
+            Color::White => 7 - rank,
+            Color::Black => rank,
+        } as usize;
+
+        (column, row)
+    }
+
+    fn square_from_pointer_pos(&self, pos: Pos2, board_rect: Rect, square_size: f32) -> Option<u8> {
+        if !board_rect.contains(pos) {
+            return None;
+        }
+
+        let column = ((pos.x - board_rect.min.x) / square_size).floor() as i32;
+        let row = ((pos.y - board_rect.min.y) / square_size).floor() as i32;
+
+        if !(0..8).contains(&column) || !(0..8).contains(&row) {
+            return None;
+        }
+
+        Some(self.square_from_board_grid(column as usize, row as usize))
+    }
+
+    fn square_center(&self, square: u8, board_rect: Rect, square_size: f32) -> Pos2 {
+        let (column, row) = self.board_grid_from_square(square);
+        Pos2::new(
+            board_rect.min.x + ((column as f32) + 0.5) * square_size,
+            board_rect.min.y + ((row as f32) + 0.5) * square_size,
+        )
+    }
+
+    fn toggle_arrow(&mut self, from: u8, to: u8) {
+        if from == to {
+            return;
+        }
+
+        if let Some(index) = self
+            .drawn_arrows
+            .iter()
+            .position(|arrow| arrow.from == from && arrow.to == to)
+        {
+            self.drawn_arrows.remove(index);
+        } else {
+            self.drawn_arrows.push(DrawnArrow { from, to });
+        }
+    }
+
+    fn handle_arrow_input(&mut self, ctx: &egui::Context, board_rect: Rect, square_size: f32) {
+        if ctx.input(|i| i.pointer.secondary_pressed()) {
+            let start_square = ctx.input(|i| {
+                i.pointer
+                    .interact_pos()
+                    .and_then(|pos| self.square_from_pointer_pos(pos, board_rect, square_size))
+            });
+            self.arrow_drag_start = start_square;
+            self.arrow_drag_current = start_square;
+        }
+
+        if self.arrow_drag_start.is_none() {
+            return;
+        }
+
+        if ctx.input(|i| i.pointer.secondary_down()) {
+            let current_square = ctx.input(|i| {
+                i.pointer
+                    .interact_pos()
+                    .or(i.pointer.hover_pos())
+                    .and_then(|pos| self.square_from_pointer_pos(pos, board_rect, square_size))
+            });
+            if let Some(square) = current_square {
+                self.arrow_drag_current = Some(square);
+            }
+            ctx.request_repaint();
+        }
+
+        if ctx.input(|i| i.pointer.secondary_released()) {
+            if let (Some(from), Some(to)) = (self.arrow_drag_start, self.arrow_drag_current) {
+                self.toggle_arrow(from, to);
+            }
+            self.arrow_drag_start = None;
+            self.arrow_drag_current = None;
+        }
+    }
+
+    fn draw_arrow(painter: &egui::Painter, from: Pos2, to: Pos2, color: Color32, thickness: f32) {
+        let direction = to - from;
+        let length = direction.length();
+        if length < 2.0 {
+            return;
+        }
+
+        let unit = direction / length;
+        let perpendicular = Vec2::new(-unit.y, unit.x);
+
+        let start = from + unit * (thickness * 0.6);
+        let tip = to - unit * (thickness * 0.2);
+        let shaft_end = tip - unit * (thickness * 2.0);
+
+        painter.line_segment([start, shaft_end], Stroke::new(thickness, color));
+
+        let head_back = tip - unit * (thickness * 2.3);
+        let wing = thickness * 1.2;
+        let left = head_back + perpendicular * wing;
+        let right = head_back - perpendicular * wing;
+        painter.add(egui::Shape::convex_polygon(
+            vec![tip, left, right],
+            color,
+            Stroke::NONE,
+        ));
+    }
+
+    fn paint_arrows(&self, ui: &egui::Ui, board_rect: Rect, square_size: f32) {
+        let painter = ui.painter_at(board_rect);
+
+        let committed_color = Color32::from_rgba_unmultiplied(249, 214, 47, 200);
+        for arrow in &self.drawn_arrows {
+            let from = self.square_center(arrow.from, board_rect, square_size);
+            let to = self.square_center(arrow.to, board_rect, square_size);
+            Self::draw_arrow(&painter, from, to, committed_color, 6.0);
+        }
+
+        if let (Some(from_square), Some(to_square)) =
+            (self.arrow_drag_start, self.arrow_drag_current)
+        {
+            let from = self.square_center(from_square, board_rect, square_size);
+            let to = self.square_center(to_square, board_rect, square_size);
+            let preview = Color32::from_rgba_unmultiplied(243, 238, 115, 180);
+            Self::draw_arrow(&painter, from, to, preview, 5.0);
         }
     }
 
@@ -332,53 +491,63 @@ impl ChessApp {
         let previous_padding = ui.spacing().button_padding;
         ui.spacing_mut().button_padding = Vec2::ZERO;
 
-        egui::Grid::new("chess_board")
-            .spacing(Vec2::ZERO)
-            .show(ui, |ui| {
-                for display_rank in (0..8).rev() {
-                    for display_file in 0..8 {
-                        let square = self.board_square_from_display(display_file, display_rank);
-                        let file = square % 8;
-                        let rank = square / 8;
-                        let is_light = (file + rank) % 2 == 0;
+        let board_response = ui
+            .scope(|ui| {
+                egui::Grid::new("chess_board")
+                    .spacing(Vec2::ZERO)
+                    .show(ui, |ui| {
+                        for row in 0..8 {
+                            for column in 0..8 {
+                                let square = self.square_from_board_grid(column, row);
+                                let file = square % 8;
+                                let rank = square / 8;
+                                let is_light = (file + rank) % 2 == 0;
 
-                        let mut fill = if is_light {
-                            Color32::from_rgb(241, 217, 181)
-                        } else {
-                            Color32::from_rgb(181, 136, 99)
-                        };
+                                let mut fill = if is_light {
+                                    Color32::from_rgb(241, 217, 181)
+                                } else {
+                                    Color32::from_rgb(181, 136, 99)
+                                };
 
-                        if Some(square) == selected {
-                            fill = Color32::from_rgb(245, 246, 130);
-                        } else if selected_targets.contains(&square) {
-                            fill = Color32::from_rgb(140, 195, 120);
-                        }
+                                if Some(square) == selected {
+                                    fill = Color32::from_rgb(245, 246, 130);
+                                } else if selected_targets.contains(&square) {
+                                    fill = Color32::from_rgb(140, 195, 120);
+                                }
 
-                        let button = if let Some(piece) = self.position.piece_at(square) {
-                            if let Some(texture) = self.piece_textures.get(&piece) {
-                                egui::Button::image(egui::Image::new((
-                                    texture.id(),
-                                    piece_image_size,
-                                )))
-                            } else {
-                                egui::Button::new(RichText::new(piece_to_unicode(piece)).size(40.0))
+                                let button = if let Some(piece) = self.position.piece_at(square) {
+                                    if let Some(texture) = self.piece_textures.get(&piece) {
+                                        egui::Button::image(egui::Image::new((
+                                            texture.id(),
+                                            piece_image_size,
+                                        )))
+                                    } else {
+                                        egui::Button::new(
+                                            RichText::new(piece_to_unicode(piece)).size(40.0),
+                                        )
+                                    }
+                                } else {
+                                    egui::Button::new("")
+                                }
+                                .fill(fill)
+                                .frame(false)
+                                .min_size(Vec2::new(square_size, square_size));
+
+                                if ui.add(button).clicked_by(PointerButton::Primary) {
+                                    self.handle_square_click(square);
+                                }
                             }
-                        } else {
-                            egui::Button::new("")
+                            ui.end_row();
                         }
-                        .fill(fill)
-                        .frame(false)
-                        .min_size(Vec2::new(square_size, square_size));
-
-                        if ui.add(button).clicked() {
-                            self.handle_square_click(square);
-                        }
-                    }
-                    ui.end_row();
-                }
-            });
+                    });
+            })
+            .response;
 
         ui.spacing_mut().button_padding = previous_padding;
+
+        let board_rect = board_response.rect;
+        self.handle_arrow_input(ui.ctx(), board_rect, square_size);
+        self.paint_arrows(ui, board_rect, square_size);
     }
 }
 
