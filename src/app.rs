@@ -10,7 +10,103 @@ use crate::chess::{
     Color, GameStatus, Move, Piece, PieceKind, Position, move_to_coord, move_to_san,
     piece_to_unicode,
 };
-use crate::engine::{EngineConfig, best_move, profile_for_elo};
+use crate::engine::{EngineConfig, SearchSnapshot, best_move_with_telemetry, profile_for_elo};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BoardTheme {
+    AuroraCircuit,
+    EmberSand,
+    GraphiteBloom,
+}
+
+impl BoardTheme {
+    fn name(self) -> &'static str {
+        match self {
+            Self::AuroraCircuit => "Aurora Circuit",
+            Self::EmberSand => "Ember Sand",
+            Self::GraphiteBloom => "Graphite Bloom",
+        }
+    }
+
+    fn all() -> [Self; 3] {
+        [Self::AuroraCircuit, Self::EmberSand, Self::GraphiteBloom]
+    }
+
+    fn palette(self) -> ThemePalette {
+        match self {
+            Self::AuroraCircuit => ThemePalette {
+                board_light: Color32::from_rgb(229, 236, 248),
+                board_dark: Color32::from_rgb(74, 102, 134),
+                selected: Color32::from_rgb(252, 245, 156),
+                target: Color32::from_rgb(118, 214, 171),
+                arrow: Color32::from_rgba_unmultiplied(84, 255, 219, 210),
+                arrow_preview: Color32::from_rgba_unmultiplied(166, 255, 237, 175),
+                viz_bg: Color32::from_rgb(16, 22, 36),
+                viz_grid: Color32::from_rgba_unmultiplied(125, 145, 186, 55),
+                viz_depth: Color32::from_rgba_unmultiplied(75, 170, 255, 120),
+                viz_eval_pos: Color32::from_rgb(99, 239, 171),
+                viz_eval_neg: Color32::from_rgb(255, 115, 125),
+                viz_eval_glow: Color32::from_rgba_unmultiplied(120, 240, 255, 80),
+                viz_text_main: Color32::from_rgb(230, 240, 255),
+                viz_text_muted: Color32::from_rgb(153, 180, 214),
+                viz_card: Color32::from_rgba_unmultiplied(26, 34, 52, 220),
+            },
+            Self::EmberSand => ThemePalette {
+                board_light: Color32::from_rgb(246, 224, 187),
+                board_dark: Color32::from_rgb(157, 98, 68),
+                selected: Color32::from_rgb(255, 231, 135),
+                target: Color32::from_rgb(228, 170, 112),
+                arrow: Color32::from_rgba_unmultiplied(255, 194, 81, 215),
+                arrow_preview: Color32::from_rgba_unmultiplied(255, 223, 163, 180),
+                viz_bg: Color32::from_rgb(39, 24, 17),
+                viz_grid: Color32::from_rgba_unmultiplied(208, 135, 101, 55),
+                viz_depth: Color32::from_rgba_unmultiplied(255, 154, 94, 130),
+                viz_eval_pos: Color32::from_rgb(255, 212, 125),
+                viz_eval_neg: Color32::from_rgb(255, 122, 109),
+                viz_eval_glow: Color32::from_rgba_unmultiplied(255, 201, 112, 80),
+                viz_text_main: Color32::from_rgb(255, 236, 213),
+                viz_text_muted: Color32::from_rgb(211, 170, 140),
+                viz_card: Color32::from_rgba_unmultiplied(55, 34, 24, 220),
+            },
+            Self::GraphiteBloom => ThemePalette {
+                board_light: Color32::from_rgb(223, 226, 233),
+                board_dark: Color32::from_rgb(103, 111, 128),
+                selected: Color32::from_rgb(223, 247, 163),
+                target: Color32::from_rgb(149, 221, 194),
+                arrow: Color32::from_rgba_unmultiplied(146, 232, 214, 210),
+                arrow_preview: Color32::from_rgba_unmultiplied(188, 247, 236, 175),
+                viz_bg: Color32::from_rgb(20, 23, 30),
+                viz_grid: Color32::from_rgba_unmultiplied(147, 165, 191, 50),
+                viz_depth: Color32::from_rgba_unmultiplied(143, 173, 224, 125),
+                viz_eval_pos: Color32::from_rgb(150, 231, 187),
+                viz_eval_neg: Color32::from_rgb(255, 134, 159),
+                viz_eval_glow: Color32::from_rgba_unmultiplied(186, 230, 255, 70),
+                viz_text_main: Color32::from_rgb(235, 240, 249),
+                viz_text_muted: Color32::from_rgb(167, 180, 204),
+                viz_card: Color32::from_rgba_unmultiplied(31, 37, 49, 220),
+            },
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ThemePalette {
+    board_light: Color32,
+    board_dark: Color32,
+    selected: Color32,
+    target: Color32,
+    arrow: Color32,
+    arrow_preview: Color32,
+    viz_bg: Color32,
+    viz_grid: Color32,
+    viz_depth: Color32,
+    viz_eval_pos: Color32,
+    viz_eval_neg: Color32,
+    viz_eval_glow: Color32,
+    viz_text_main: Color32,
+    viz_text_muted: Color32,
+    viz_card: Color32,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum GamePhase {
@@ -61,21 +157,29 @@ struct DrawnArrow {
     to: u8,
 }
 
+enum EngineEvent {
+    Snapshot(SearchSnapshot),
+    Done(Option<Move>),
+}
+
 pub struct ChessApp {
     position: Position,
     selected_square: Option<u8>,
     selected_moves: Vec<Move>,
+    theme: BoardTheme,
     human_color: Color,
     bot_elo: u16,
     status: GameStatus,
     move_log: Vec<String>,
     move_history: Vec<Move>,
     thinking: bool,
-    engine_rx: Option<Receiver<Option<Move>>>,
+    engine_rx: Option<Receiver<EngineEvent>>,
     piece_textures: HashMap<Piece, egui::TextureHandle>,
     drawn_arrows: Vec<DrawnArrow>,
     arrow_drag_start: Option<u8>,
     arrow_drag_current: Option<u8>,
+    search_snapshots: Vec<SearchSnapshot>,
+    search_root: Option<Position>,
 }
 
 impl ChessApp {
@@ -86,6 +190,7 @@ impl ChessApp {
             position,
             selected_square: None,
             selected_moves: Vec::new(),
+            theme: BoardTheme::AuroraCircuit,
             human_color: Color::White,
             bot_elo: 1600,
             move_log: Vec::new(),
@@ -96,6 +201,8 @@ impl ChessApp {
             drawn_arrows: Vec::new(),
             arrow_drag_start: None,
             arrow_drag_current: None,
+            search_snapshots: Vec::new(),
+            search_root: None,
         }
     }
 
@@ -114,6 +221,8 @@ impl ChessApp {
         self.drawn_arrows.clear();
         self.arrow_drag_start = None;
         self.arrow_drag_current = None;
+        self.search_snapshots.clear();
+        self.search_root = None;
         self.sync_status();
     }
 
@@ -139,10 +248,25 @@ impl ChessApp {
             return;
         };
 
-        if let Ok(engine_move) = receiver.try_recv() {
+        let mut finished_move = None;
+        while let Ok(event) = receiver.try_recv() {
+            match event {
+                EngineEvent::Snapshot(snapshot) => {
+                    self.search_snapshots.push(snapshot);
+                    if self.search_snapshots.len() > 256 {
+                        let excess = self.search_snapshots.len() - 256;
+                        self.search_snapshots.drain(0..excess);
+                    }
+                }
+                EngineEvent::Done(mv) => {
+                    finished_move = Some(mv);
+                }
+            }
+        }
+
+        if let Some(engine_move) = finished_move {
             self.engine_rx = None;
             self.thinking = false;
-
             if let Some(mv) = engine_move {
                 self.apply_move(mv);
             } else {
@@ -160,12 +284,16 @@ impl ChessApp {
         let config = EngineConfig::new(self.bot_elo);
         let (tx, rx) = mpsc::channel();
 
+        self.search_root = Some(position.clone());
+        self.search_snapshots.clear();
         self.engine_rx = Some(rx);
         self.thinking = true;
 
         thread::spawn(move || {
-            let mv = best_move(&position, config);
-            let _ = tx.send(mv);
+            let mv = best_move_with_telemetry(&position, config, |snapshot| {
+                let _ = tx.send(EngineEvent::Snapshot(snapshot));
+            });
+            let _ = tx.send(EngineEvent::Done(mv));
         });
     }
 
@@ -439,14 +567,19 @@ impl ChessApp {
         ));
     }
 
-    fn paint_arrows(&self, ui: &egui::Ui, board_rect: Rect, square_size: f32) {
+    fn paint_arrows(
+        &self,
+        ui: &egui::Ui,
+        board_rect: Rect,
+        square_size: f32,
+        palette: ThemePalette,
+    ) {
         let painter = ui.painter_at(board_rect);
 
-        let committed_color = Color32::from_rgba_unmultiplied(249, 214, 47, 200);
         for arrow in &self.drawn_arrows {
             let from = self.square_center(arrow.from, board_rect, square_size);
             let to = self.square_center(arrow.to, board_rect, square_size);
-            Self::draw_arrow(&painter, from, to, committed_color, 6.0);
+            Self::draw_arrow(&painter, from, to, palette.arrow, 6.0);
         }
 
         if let (Some(from_square), Some(to_square)) =
@@ -454,8 +587,229 @@ impl ChessApp {
         {
             let from = self.square_center(from_square, board_rect, square_size);
             let to = self.square_center(to_square, board_rect, square_size);
-            let preview = Color32::from_rgba_unmultiplied(243, 238, 115, 180);
-            Self::draw_arrow(&painter, from, to, preview, 5.0);
+            Self::draw_arrow(&painter, from, to, palette.arrow_preview, 5.0);
+        }
+    }
+
+    fn draw_thinking_visualization(&self, ui: &mut egui::Ui) {
+        let palette = self.theme.palette();
+        let panel_size = Vec2::new(8.0 * 72.0, 192.0);
+        let (rect, _) = ui.allocate_exact_size(panel_size, egui::Sense::hover());
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect, 12.0, palette.viz_bg);
+
+        let inner = rect.shrink2(Vec2::new(10.0, 10.0));
+        let chart_width = inner.width() * 0.62;
+        let chart_rect = Rect::from_min_max(
+            inner.min,
+            Pos2::new(inner.min.x + chart_width, inner.max.y - 2.0),
+        );
+        let cards_rect =
+            Rect::from_min_max(Pos2::new(chart_rect.max.x + 10.0, inner.min.y), inner.max);
+
+        self.paint_search_chart(&painter, chart_rect, palette);
+        self.paint_search_cards(&painter, cards_rect, palette);
+    }
+
+    fn paint_search_chart(&self, painter: &egui::Painter, rect: Rect, palette: ThemePalette) {
+        painter.rect_filled(rect, 8.0, Color32::from_rgba_unmultiplied(8, 10, 16, 40));
+
+        let zero_y = rect.center().y;
+        painter.line_segment(
+            [Pos2::new(rect.min.x, zero_y), Pos2::new(rect.max.x, zero_y)],
+            Stroke::new(1.0, palette.viz_grid),
+        );
+
+        for idx in 1..8 {
+            let t = idx as f32 / 8.0;
+            let x = rect.min.x + rect.width() * t;
+            painter.line_segment(
+                [Pos2::new(x, rect.min.y), Pos2::new(x, rect.max.y)],
+                Stroke::new(1.0, palette.viz_grid),
+            );
+        }
+
+        if self.search_snapshots.is_empty() {
+            let idle_text = if self.thinking {
+                "Engine warming up..."
+            } else {
+                "No active search"
+            };
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                idle_text,
+                egui::FontId::monospace(14.0),
+                palette.viz_text_muted,
+            );
+            return;
+        }
+
+        let history = self
+            .search_snapshots
+            .iter()
+            .rev()
+            .take(96)
+            .collect::<Vec<_>>();
+        let history = history.into_iter().rev().collect::<Vec<_>>();
+        let max_depth = history.iter().map(|s| s.depth).max().unwrap_or(1) as f32;
+
+        let mut points = Vec::with_capacity(history.len());
+        for (idx, snapshot) in history.iter().enumerate() {
+            let x = if history.len() == 1 {
+                rect.center().x
+            } else {
+                rect.min.x + rect.width() * (idx as f32 / (history.len() as f32 - 1.0))
+            };
+
+            let depth_height = (snapshot.depth as f32 / max_depth) * (rect.height() * 0.36);
+            let bar_rect = Rect::from_min_max(
+                Pos2::new(x - 1.5, rect.max.y - depth_height),
+                Pos2::new(x + 1.5, rect.max.y),
+            );
+            painter.rect_filled(bar_rect, 1.0, palette.viz_depth);
+
+            let score = snapshot.best_score_cp.clamp(-600, 600) as f32;
+            let y = zero_y - (score / 600.0) * (rect.height() * 0.42);
+            points.push(Pos2::new(x, y));
+        }
+
+        if points.len() >= 2 {
+            painter.add(egui::Shape::line(
+                points.clone(),
+                Stroke::new(6.0, palette.viz_eval_glow),
+            ));
+        }
+
+        let trend_color = if history.last().is_some_and(|s| s.best_score_cp >= 0) {
+            palette.viz_eval_pos
+        } else {
+            palette.viz_eval_neg
+        };
+        painter.add(egui::Shape::line(
+            points.clone(),
+            Stroke::new(2.2, trend_color),
+        ));
+
+        if let Some(last) = points.last().copied() {
+            painter.circle_filled(last, 4.5, trend_color);
+            painter.circle_stroke(last, 7.5, Stroke::new(1.2, palette.viz_eval_glow));
+        }
+    }
+
+    fn paint_search_cards(&self, painter: &egui::Painter, rect: Rect, palette: ThemePalette) {
+        let Some(latest) = self.search_snapshots.last() else {
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "Waiting for search data",
+                egui::FontId::monospace(13.0),
+                palette.viz_text_muted,
+            );
+            return;
+        };
+
+        let elapsed_ms = latest.elapsed_ms.max(1);
+        let nps = latest.nodes.saturating_mul(1000) / elapsed_ms as u64;
+        let eval_pawns = latest.best_score_cp as f32 / 100.0;
+        let stability = best_move_stability(&self.search_snapshots);
+        let volatility = eval_volatility_cp(&self.search_snapshots);
+        let gap_cp = latest
+            .top_moves
+            .get(1)
+            .map(|second| latest.best_score_cp - second.score_cp)
+            .unwrap_or(0);
+
+        let left = rect.min.x;
+        let mut y = rect.min.y + 2.0;
+        let line_h = 15.0;
+
+        painter.text(
+            Pos2::new(left, y),
+            egui::Align2::LEFT_TOP,
+            "Search Prism",
+            egui::FontId::proportional(16.0),
+            palette.viz_text_main,
+        );
+        y += line_h + 2.0;
+
+        let insight_lines = [
+            format!("Depth: {}", latest.depth),
+            format!("Nodes: {}", format_big_number(latest.nodes)),
+            format!("NPS: {}", format_big_number(nps)),
+            format!("Score: {:+.2} pawns", eval_pawns),
+            format!("Stability: {:.0}%", stability * 100.0),
+            format!("Volatility: {} cp", volatility.round() as i32),
+            format!("Lead gap: {} cp", gap_cp),
+        ];
+
+        for line in insight_lines {
+            painter.text(
+                Pos2::new(left, y),
+                egui::Align2::LEFT_TOP,
+                line,
+                egui::FontId::monospace(12.0),
+                palette.viz_text_muted,
+            );
+            y += line_h;
+        }
+
+        y += 4.0;
+        painter.text(
+            Pos2::new(left, y),
+            egui::Align2::LEFT_TOP,
+            "Top Candidates",
+            egui::FontId::proportional(14.0),
+            palette.viz_text_main,
+        );
+        y += line_h;
+
+        let root_position = self.search_root.as_ref();
+        let best_abs = latest
+            .top_moves
+            .first()
+            .map(|m| m.score_cp.abs())
+            .unwrap_or(1)
+            .max(1) as f32;
+
+        for candidate in latest.top_moves.iter().take(3) {
+            let card_rect =
+                Rect::from_min_max(Pos2::new(left, y), Pos2::new(rect.max.x - 2.0, y + 18.0));
+            painter.rect_filled(card_rect, 6.0, palette.viz_card);
+
+            let move_text = if let Some(root) = root_position {
+                move_to_san(root, candidate.mv)
+            } else {
+                move_to_coord(candidate.mv)
+            };
+            let ratio = (candidate.score_cp.abs() as f32 / best_abs).clamp(0.0, 1.0);
+            let meter_width = (card_rect.width() - 72.0) * ratio;
+            let meter_rect = Rect::from_min_max(
+                Pos2::new(
+                    card_rect.right() - meter_width - 4.0,
+                    card_rect.top() + 13.0,
+                ),
+                Pos2::new(card_rect.right() - 4.0, card_rect.bottom() - 4.0),
+            );
+            let move_color = if candidate.score_cp >= 0 {
+                palette.viz_eval_pos
+            } else {
+                palette.viz_eval_neg
+            };
+            painter.rect_filled(meter_rect, 2.0, move_color);
+
+            painter.text(
+                Pos2::new(card_rect.left() + 6.0, card_rect.top() + 2.0),
+                egui::Align2::LEFT_TOP,
+                format!("{move_text}  ({:+}cp)", candidate.score_cp),
+                egui::FontId::monospace(11.5),
+                palette.viz_text_main,
+            );
+
+            y += 22.0;
+            if y > rect.max.y - 20.0 {
+                break;
+            }
         }
     }
 
@@ -475,6 +829,15 @@ impl ChessApp {
             ui.label(format!("Middlegame: {}", phase_names.middlegame_name));
             ui.label(format!("Endgame: {}", phase_names.endgame_name));
         });
+
+        ui.add_space(8.0);
+        egui::ComboBox::from_label("Color Theme")
+            .selected_text(self.theme.name())
+            .show_ui(ui, |ui| {
+                for theme in BoardTheme::all() {
+                    ui.selectable_value(&mut self.theme, theme, theme.name());
+                }
+            });
 
         ui.add_space(8.0);
         ui.add(egui::Slider::new(&mut self.bot_elo, 600..=2800).text("Bot Elo"));
@@ -543,6 +906,7 @@ impl ChessApp {
     fn draw_board(&mut self, ui: &mut egui::Ui) {
         let square_size = 72.0;
         let piece_image_size = Vec2::splat(square_size - 12.0);
+        let palette = self.theme.palette();
 
         let selected = self.selected_square;
         let selected_targets = self
@@ -567,15 +931,15 @@ impl ChessApp {
                                 let is_light = (file + rank) % 2 == 0;
 
                                 let mut fill = if is_light {
-                                    Color32::from_rgb(241, 217, 181)
+                                    palette.board_light
                                 } else {
-                                    Color32::from_rgb(181, 136, 99)
+                                    palette.board_dark
                                 };
 
                                 if Some(square) == selected {
-                                    fill = Color32::from_rgb(245, 246, 130);
+                                    fill = palette.selected;
                                 } else if selected_targets.contains(&square) {
-                                    fill = Color32::from_rgb(140, 195, 120);
+                                    fill = palette.target;
                                 }
 
                                 let button = if let Some(piece) = self.position.piece_at(square) {
@@ -610,7 +974,7 @@ impl ChessApp {
 
         let board_rect = board_response.rect;
         self.handle_arrow_input(ui.ctx(), board_rect, square_size);
-        self.paint_arrows(ui, board_rect, square_size);
+        self.paint_arrows(ui, board_rect, square_size, palette);
     }
 }
 
@@ -638,6 +1002,8 @@ impl eframe::App for ChessApp {
             .show(ctx, |ui| {
                 ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
                     self.draw_board(ui);
+                    ui.add_space(10.0);
+                    self.draw_thinking_visualization(ui);
                 });
             });
 
@@ -1004,6 +1370,54 @@ fn square_color(square: u8) -> u8 {
     let file = square % 8;
     let rank = square / 8;
     (file + rank) % 2
+}
+
+fn best_move_stability(history: &[SearchSnapshot]) -> f32 {
+    if history.len() <= 1 {
+        return 1.0;
+    }
+
+    let tail = history.iter().rev().take(12).collect::<Vec<_>>();
+    let tail = tail.into_iter().rev().collect::<Vec<_>>();
+    let Some(reference) = tail.last().map(|snapshot| snapshot.best_move) else {
+        return 1.0;
+    };
+
+    let matches = tail
+        .iter()
+        .filter(|snapshot| snapshot.best_move == reference)
+        .count();
+    matches as f32 / tail.len() as f32
+}
+
+fn eval_volatility_cp(history: &[SearchSnapshot]) -> f32 {
+    let tail = history.iter().rev().take(14).collect::<Vec<_>>();
+    if tail.len() < 2 {
+        return 0.0;
+    }
+
+    let mut total = 0.0;
+    let mut count = 0.0;
+    for pair in tail.windows(2) {
+        let a = pair[0].best_score_cp as f32;
+        let b = pair[1].best_score_cp as f32;
+        total += (a - b).abs();
+        count += 1.0;
+    }
+
+    if count == 0.0 { 0.0 } else { total / count }
+}
+
+fn format_big_number(value: u64) -> String {
+    if value >= 1_000_000_000 {
+        format!("{:.2}B", value as f64 / 1_000_000_000.0)
+    } else if value >= 1_000_000 {
+        format!("{:.2}M", value as f64 / 1_000_000.0)
+    } else if value >= 1_000 {
+        format!("{:.1}K", value as f64 / 1_000.0)
+    } else {
+        value.to_string()
+    }
 }
 
 fn load_piece_textures(ctx: &egui::Context) -> HashMap<Piece, egui::TextureHandle> {

@@ -21,6 +21,22 @@ pub struct EloProfile {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub struct ScoredMove {
+    pub mv: Move,
+    pub score_cp: i32,
+}
+
+#[derive(Clone, Debug)]
+pub struct SearchSnapshot {
+    pub depth: u8,
+    pub elapsed_ms: u128,
+    pub nodes: u64,
+    pub best_move: Move,
+    pub best_score_cp: i32,
+    pub top_moves: Vec<ScoredMove>,
+}
+
+#[derive(Clone, Copy, Debug)]
 struct SearchLimits {
     max_depth: u8,
     deadline: Instant,
@@ -89,15 +105,23 @@ impl EngineConfig {
     }
 }
 
-pub fn best_move(position: &Position, config: EngineConfig) -> Option<Move> {
+pub fn best_move_with_telemetry<F>(
+    position: &Position,
+    config: EngineConfig,
+    mut on_snapshot: F,
+) -> Option<Move>
+where
+    F: FnMut(SearchSnapshot),
+{
     let mut searcher = Searcher::new(config.limits());
-    searcher.search(position)
+    searcher.search(position, &mut on_snapshot)
 }
 
 struct Searcher {
     limits: SearchLimits,
     nodes: u64,
     stopped: bool,
+    started_at: Instant,
 }
 
 impl Searcher {
@@ -106,10 +130,14 @@ impl Searcher {
             limits,
             nodes: 0,
             stopped: false,
+            started_at: Instant::now(),
         }
     }
 
-    fn search(&mut self, position: &Position) -> Option<Move> {
+    fn search<F>(&mut self, position: &Position, on_snapshot: &mut F) -> Option<Move>
+    where
+        F: FnMut(SearchSnapshot),
+    {
         let mut root_moves = position.legal_moves();
         if root_moves.is_empty() {
             return None;
@@ -149,6 +177,23 @@ impl Searcher {
             }
 
             depth_scores.sort_by(|a, b| b.1.cmp(&a.1));
+            if let Some((best_move, best_score_cp)) = depth_scores.first().copied() {
+                on_snapshot(SearchSnapshot {
+                    depth,
+                    elapsed_ms: self.started_at.elapsed().as_millis(),
+                    nodes: self.nodes,
+                    best_move,
+                    best_score_cp,
+                    top_moves: depth_scores
+                        .iter()
+                        .take(4)
+                        .map(|(mv, score_cp)| ScoredMove {
+                            mv: *mv,
+                            score_cp: *score_cp,
+                        })
+                        .collect(),
+                });
+            }
             root_moves = depth_scores.iter().map(|(mv, _)| *mv).collect();
             completed_scores = Some(depth_scores);
         }
