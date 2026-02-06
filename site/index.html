@@ -1,0 +1,193 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chessplate | Rust Chess Bot Desktop App</title>
+  <meta name="description" content="Chessplate is a native Rust chess app with a local bot, adjustable Elo, rich game insights, line drawing, PGN/FEN copy tools, and 90 visual themes.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Sora:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="script.js"></script>
+</head>
+<body>
+  <div class="ambient ambient-a"></div>
+  <div class="ambient ambient-b"></div>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="#top">
+        <span class="brand-mark">CP</span>
+        <span class="brand-text">Chessplate</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#insights">Insights</a>
+        <a href="#themes">Themes</a>
+        <a href="#get-started">Get Started</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero container reveal">
+      <div class="hero-copy">
+        <p class="eyebrow">Native Rust Chess Engine + GUI</p>
+        <h1>Play a serious chess bot that explains its thinking as you play.</h1>
+        <p class="lede">
+          Chessplate gives you a desktop board, a configurable Elo range, and a live engine telemetry panel.
+          It is built as a local-first Rust app so games are fast, private, and always available.
+        </p>
+        <div class="hero-cta">
+          <a class="button button-primary" href="#get-started">Run It Locally</a>
+          <a class="button button-secondary" href="#features">Explore Features</a>
+        </div>
+        <div class="hero-metrics">
+          <article>
+            <h3>90</h3>
+            <p>In-app board themes</p>
+          </article>
+          <article>
+            <h3>600-2800</h3>
+            <p>Adjustable bot Elo</p>
+          </article>
+          <article>
+            <h3>FEN + PGN</h3>
+            <p>One-click export buttons</p>
+          </article>
+        </div>
+      </div>
+
+      <div class="hero-panel">
+        <div class="panel-window">
+          <div class="window-bar">
+            <span></span><span></span><span></span>
+            <p>Live Match Preview</p>
+          </div>
+          <div class="window-main">
+            <div class="mini-board-wrap">
+              <div id="hero-board" class="mini-board" aria-label="Chess board preview"></div>
+              <svg id="hero-arrows" class="arrow-layer" viewBox="0 0 800 800" preserveAspectRatio="none" aria-hidden="true"></svg>
+            </div>
+            <aside class="mini-insight">
+              <h2>Search Prism</h2>
+              <canvas id="hero-prism" width="420" height="210" aria-label="Engine search chart"></canvas>
+              <div id="hero-candidates" class="candidate-list"></div>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="features" class="section section-light reveal">
+      <div class="container">
+        <div class="section-heading">
+          <p class="eyebrow">What You Get</p>
+          <h2>A complete training and analysis flow inside one native app.</h2>
+        </div>
+        <div class="feature-grid">
+          <article class="feature-card">
+            <h3>Adjustable Strength</h3>
+            <p>Set bot strength with an Elo slider from <strong>600</strong> to <strong>2800</strong> so you can spar, test lines, or push max depth.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Opening + Phase Detection</h3>
+            <p>The sidebar tracks <strong>opening</strong>, <strong>middlegame</strong>, and <strong>endgame</strong> labels in real time while the move list grows.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Chess.com-style Arrows</h3>
+            <p>Draw analysis arrows directly on the board. Use right-drag to place them, then clear instantly with <strong>Esc</strong> or left click.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Copy State / Copy Game</h3>
+            <p>Export any moment with <strong>Copy State</strong> (FEN) or copy the full game with <strong>Copy Game</strong> (PGN with algebraic notation).</p>
+          </article>
+          <article class="feature-card">
+            <h3>Search Prism Telemetry</h3>
+            <p>Watch depth, nodes, NPS, eval trend, volatility, and candidate move gaps update live as the engine searches.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Insane Theme Library</h3>
+            <p>Cycle through a huge palette catalog with generated variants, from clean tournament looks to bold, cinematic boards.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="insights" class="section reveal">
+      <div class="container insights-layout">
+        <div>
+          <p class="eyebrow">Practical Insight</p>
+          <h2>Not just pretty charts. Useful match context.</h2>
+          <p class="lede">
+            Chessplate exposes enough signal to understand <em>why</em> the bot prefers one move over another.
+            You can see stability, volatility, and lead gap while still keeping the board front and center.
+          </p>
+          <ul class="bullet-list">
+            <li>Top candidate lines shown with centipawn score and relative confidence bars.</li>
+            <li>Depth and node speed visible during calculation, not after the move is played.</li>
+            <li>Move history recorded in SAN so you can read games naturally.</li>
+          </ul>
+        </div>
+        <div class="insight-cards">
+          <article>
+            <h3>Phase Lens</h3>
+            <p>Instant labels for opening, middlegame, and endgame keep training goals focused per stage.</p>
+          </article>
+          <article>
+            <h3>Rapid Reset</h3>
+            <p>Switch sides, restart fast, and keep iterating positions without workflow friction.</p>
+          </article>
+          <article>
+            <h3>Local-First</h3>
+            <p>No account, no queue, no network lag. Launch and play directly on your machine.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="themes" class="section section-light reveal">
+      <div class="container">
+        <div class="section-heading">
+          <p class="eyebrow">Theme Playground</p>
+          <h2>Sample the style system. The app ships with dozens more.</h2>
+        </div>
+        <div id="theme-rail" class="theme-rail" aria-label="Theme swatches"></div>
+        <p class="theme-note">Tap any swatch to recolor this site preview. The desktop app includes a larger generated catalog with 90 themes.</p>
+      </div>
+    </section>
+
+    <section id="get-started" class="section reveal">
+      <div class="container get-started">
+        <div>
+          <p class="eyebrow">Get Started</p>
+          <h2>Run Chessplate in minutes.</h2>
+          <p class="lede">Build and run the native app from source:</p>
+          <pre><code>cargo run --release</code></pre>
+        </div>
+        <div class="steps">
+          <article>
+            <h3>1. Launch</h3>
+            <p>Start the app and pick a theme + Elo that matches your training goal.</p>
+          </article>
+          <article>
+            <h3>2. Play + Analyze</h3>
+            <p>Use arrows and Search Prism to investigate tactical ideas mid-game.</p>
+          </article>
+          <article>
+            <h3>3. Export</h3>
+            <p>Copy FEN/PGN and carry positions into your study workflow.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <p>Chessplate</p>
+      <p>Rust-powered chess engine and native desktop GUI.</p>
+    </div>
+  </footer>
+</body>
+</html>
