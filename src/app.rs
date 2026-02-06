@@ -19,7 +19,7 @@ mod theme;
 use self::game_insight::phase_names;
 use self::metrics::{best_move_stability, eval_volatility_cp, format_big_number};
 use self::pieces::load_piece_textures;
-use self::theme::{BoardTheme, ThemePalette};
+use self::theme::{BoardTheme, ThemePalette, all_themes};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct DrawnArrow {
@@ -39,7 +39,7 @@ pub struct ChessApp {
     position: Position,
     selected_square: Option<u8>,
     selected_moves: Vec<Move>,
-    theme: BoardTheme,
+    theme_index: usize,
     human_color: Color,
     bot_elo: u16,
     status: GameStatus,
@@ -64,7 +64,7 @@ impl ChessApp {
             position,
             selected_square: None,
             selected_moves: Vec::new(),
-            theme: BoardTheme::AuroraCircuit,
+            theme_index: 0,
             human_color: Color::White,
             bot_elo: 1600,
             move_log: Vec::new(),
@@ -83,6 +83,14 @@ impl ChessApp {
 
     fn bot_color(&self) -> Color {
         self.human_color.opposite()
+    }
+
+    fn current_theme(&self) -> &'static BoardTheme {
+        let themes = all_themes();
+        themes
+            .get(self.theme_index)
+            .or_else(|| themes.first())
+            .expect("theme catalog must not be empty")
     }
 
     fn new_game(&mut self) {
@@ -472,7 +480,7 @@ impl ChessApp {
     }
 
     fn draw_thinking_visualization(&self, ui: &mut egui::Ui, panel_size: Vec2) {
-        let palette = self.theme.palette();
+        let palette = self.current_theme().palette;
         let (rect, _) = ui.allocate_exact_size(panel_size, egui::Sense::hover());
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 12.0, palette.viz_bg);
@@ -711,10 +719,10 @@ impl ChessApp {
 
         ui.add_space(8.0);
         egui::ComboBox::from_label("Color Theme")
-            .selected_text(self.theme.name())
+            .selected_text(self.current_theme().name.as_str())
             .show_ui(ui, |ui| {
-                for theme in BoardTheme::all() {
-                    ui.selectable_value(&mut self.theme, theme, theme.name());
+                for (idx, theme) in all_themes().iter().enumerate() {
+                    ui.selectable_value(&mut self.theme_index, idx, theme.name.as_str());
                 }
             });
 
@@ -789,7 +797,7 @@ impl ChessApp {
 
     fn draw_board(&mut self, ui: &mut egui::Ui, square_size: f32) {
         let piece_image_size = Vec2::splat((square_size - 10.0).max(30.0));
-        let palette = self.theme.palette();
+        let palette = self.current_theme().palette;
 
         let selected = self.selected_square;
         let mut selected_targets = [false; 64];
