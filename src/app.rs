@@ -591,21 +591,20 @@ impl ChessApp {
         }
     }
 
-    fn draw_thinking_visualization(&self, ui: &mut egui::Ui) {
+    fn draw_thinking_visualization(&self, ui: &mut egui::Ui, panel_size: Vec2) {
         let palette = self.theme.palette();
-        let panel_size = Vec2::new(8.0 * 72.0, 192.0);
         let (rect, _) = ui.allocate_exact_size(panel_size, egui::Sense::hover());
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 12.0, palette.viz_bg);
 
         let inner = rect.shrink2(Vec2::new(10.0, 10.0));
-        let chart_width = inner.width() * 0.62;
+        let chart_height = inner.height() * 0.54;
         let chart_rect = Rect::from_min_max(
             inner.min,
-            Pos2::new(inner.min.x + chart_width, inner.max.y - 2.0),
+            Pos2::new(inner.max.x, inner.min.y + chart_height),
         );
         let cards_rect =
-            Rect::from_min_max(Pos2::new(chart_rect.max.x + 10.0, inner.min.y), inner.max);
+            Rect::from_min_max(Pos2::new(inner.min.x, chart_rect.max.y + 8.0), inner.max);
 
         self.paint_search_chart(&painter, chart_rect, palette);
         self.paint_search_cards(&painter, cards_rect, palette);
@@ -903,9 +902,8 @@ impl ChessApp {
             });
     }
 
-    fn draw_board(&mut self, ui: &mut egui::Ui) {
-        let square_size = 72.0;
-        let piece_image_size = Vec2::splat(square_size - 12.0);
+    fn draw_board(&mut self, ui: &mut egui::Ui, square_size: f32) {
+        let piece_image_size = Vec2::splat((square_size - 10.0).max(30.0));
         let palette = self.theme.palette();
 
         let selected = self.selected_square;
@@ -1000,10 +998,29 @@ impl eframe::App for ChessApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::default().inner_margin(egui::Margin::same(8.0)))
             .show(ctx, |ui| {
-                ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                    self.draw_board(ui);
-                    ui.add_space(10.0);
-                    self.draw_thinking_visualization(ui);
+                let gap = 12.0;
+                let total_width = ui.available_width();
+                let max_square = 72.0;
+                let min_square = 46.0;
+                let desired_viz_width = 260.0;
+                let min_viz_width = 150.0;
+
+                let mut square_size = max_square;
+                let mut viz_width = desired_viz_width;
+                if total_width < (max_square * 8.0 + desired_viz_width + gap) {
+                    square_size = ((total_width - desired_viz_width - gap) / 8.0)
+                        .floor()
+                        .clamp(min_square, max_square);
+                    viz_width = (total_width - (square_size * 8.0) - gap)
+                        .max(min_viz_width)
+                        .min(desired_viz_width);
+                }
+
+                let board_size = square_size * 8.0;
+                ui.horizontal(|ui| {
+                    self.draw_board(ui, square_size);
+                    ui.add_space(gap);
+                    self.draw_thinking_visualization(ui, Vec2::new(viz_width, board_size));
                 });
             });
 
