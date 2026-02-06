@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Color32, PointerButton, Pos2, Rect, RichText, Stroke, Vec2};
-use resvg::{tiny_skia, usvg};
 
 use crate::chess::{
     Color, GameStatus, Move, Piece, PieceKind, Position, move_to_coord, move_to_san,
@@ -12,144 +11,15 @@ use crate::chess::{
 };
 use crate::engine::{EngineConfig, SearchSnapshot, best_move_with_telemetry, profile_for_elo};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BoardTheme {
-    AuroraCircuit,
-    EmberSand,
-    GraphiteBloom,
-}
+mod game_insight;
+mod metrics;
+mod pieces;
+mod theme;
 
-impl BoardTheme {
-    fn name(self) -> &'static str {
-        match self {
-            Self::AuroraCircuit => "Aurora Circuit",
-            Self::EmberSand => "Ember Sand",
-            Self::GraphiteBloom => "Graphite Bloom",
-        }
-    }
-
-    fn all() -> [Self; 3] {
-        [Self::AuroraCircuit, Self::EmberSand, Self::GraphiteBloom]
-    }
-
-    fn palette(self) -> ThemePalette {
-        match self {
-            Self::AuroraCircuit => ThemePalette {
-                board_light: Color32::from_rgb(229, 236, 248),
-                board_dark: Color32::from_rgb(74, 102, 134),
-                selected: Color32::from_rgb(252, 245, 156),
-                target: Color32::from_rgb(118, 214, 171),
-                arrow: Color32::from_rgba_unmultiplied(84, 255, 219, 210),
-                arrow_preview: Color32::from_rgba_unmultiplied(166, 255, 237, 175),
-                viz_bg: Color32::from_rgb(16, 22, 36),
-                viz_grid: Color32::from_rgba_unmultiplied(125, 145, 186, 55),
-                viz_depth: Color32::from_rgba_unmultiplied(75, 170, 255, 120),
-                viz_eval_pos: Color32::from_rgb(99, 239, 171),
-                viz_eval_neg: Color32::from_rgb(255, 115, 125),
-                viz_eval_glow: Color32::from_rgba_unmultiplied(120, 240, 255, 80),
-                viz_text_main: Color32::from_rgb(230, 240, 255),
-                viz_text_muted: Color32::from_rgb(153, 180, 214),
-                viz_card: Color32::from_rgba_unmultiplied(26, 34, 52, 220),
-            },
-            Self::EmberSand => ThemePalette {
-                board_light: Color32::from_rgb(246, 224, 187),
-                board_dark: Color32::from_rgb(157, 98, 68),
-                selected: Color32::from_rgb(255, 231, 135),
-                target: Color32::from_rgb(228, 170, 112),
-                arrow: Color32::from_rgba_unmultiplied(255, 194, 81, 215),
-                arrow_preview: Color32::from_rgba_unmultiplied(255, 223, 163, 180),
-                viz_bg: Color32::from_rgb(39, 24, 17),
-                viz_grid: Color32::from_rgba_unmultiplied(208, 135, 101, 55),
-                viz_depth: Color32::from_rgba_unmultiplied(255, 154, 94, 130),
-                viz_eval_pos: Color32::from_rgb(255, 212, 125),
-                viz_eval_neg: Color32::from_rgb(255, 122, 109),
-                viz_eval_glow: Color32::from_rgba_unmultiplied(255, 201, 112, 80),
-                viz_text_main: Color32::from_rgb(255, 236, 213),
-                viz_text_muted: Color32::from_rgb(211, 170, 140),
-                viz_card: Color32::from_rgba_unmultiplied(55, 34, 24, 220),
-            },
-            Self::GraphiteBloom => ThemePalette {
-                board_light: Color32::from_rgb(223, 226, 233),
-                board_dark: Color32::from_rgb(103, 111, 128),
-                selected: Color32::from_rgb(223, 247, 163),
-                target: Color32::from_rgb(149, 221, 194),
-                arrow: Color32::from_rgba_unmultiplied(146, 232, 214, 210),
-                arrow_preview: Color32::from_rgba_unmultiplied(188, 247, 236, 175),
-                viz_bg: Color32::from_rgb(20, 23, 30),
-                viz_grid: Color32::from_rgba_unmultiplied(147, 165, 191, 50),
-                viz_depth: Color32::from_rgba_unmultiplied(143, 173, 224, 125),
-                viz_eval_pos: Color32::from_rgb(150, 231, 187),
-                viz_eval_neg: Color32::from_rgb(255, 134, 159),
-                viz_eval_glow: Color32::from_rgba_unmultiplied(186, 230, 255, 70),
-                viz_text_main: Color32::from_rgb(235, 240, 249),
-                viz_text_muted: Color32::from_rgb(167, 180, 204),
-                viz_card: Color32::from_rgba_unmultiplied(31, 37, 49, 220),
-            },
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct ThemePalette {
-    board_light: Color32,
-    board_dark: Color32,
-    selected: Color32,
-    target: Color32,
-    arrow: Color32,
-    arrow_preview: Color32,
-    viz_bg: Color32,
-    viz_grid: Color32,
-    viz_depth: Color32,
-    viz_eval_pos: Color32,
-    viz_eval_neg: Color32,
-    viz_eval_glow: Color32,
-    viz_text_main: Color32,
-    viz_text_muted: Color32,
-    viz_card: Color32,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum GamePhase {
-    Opening,
-    Middlegame,
-    Endgame,
-}
-
-impl GamePhase {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Opening => "Opening",
-            Self::Middlegame => "Middlegame",
-            Self::Endgame => "Endgame",
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-struct PhaseNames {
-    current_phase: &'static str,
-    opening_name: &'static str,
-    middlegame_name: &'static str,
-    endgame_name: &'static str,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct OpeningLine {
-    name: &'static str,
-    uci_moves: &'static [&'static str],
-}
-
-#[derive(Default, Clone, Copy, Debug)]
-struct MaterialSnapshot {
-    white_queens: u8,
-    black_queens: u8,
-    rooks: u8,
-    bishops: u8,
-    knights: u8,
-    pawns: u8,
-    non_pawn_material: i32,
-    total_piece_count: u8,
-}
+use self::game_insight::phase_names;
+use self::metrics::{best_move_stability, eval_volatility_cp, format_big_number};
+use self::pieces::load_piece_textures;
+use self::theme::{BoardTheme, ThemePalette};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct DrawnArrow {
@@ -161,6 +31,9 @@ enum EngineEvent {
     Snapshot(SearchSnapshot),
     Done(Option<Move>),
 }
+
+const SEARCH_SNAPSHOT_LIMIT: usize = 256;
+const COPY_FEEDBACK_SECONDS: f32 = 1.8;
 
 pub struct ChessApp {
     position: Position,
@@ -180,6 +53,7 @@ pub struct ChessApp {
     arrow_drag_current: Option<u8>,
     search_snapshots: Vec<SearchSnapshot>,
     search_root: Option<Position>,
+    copy_feedback: Option<(String, Instant)>,
 }
 
 impl ChessApp {
@@ -203,6 +77,7 @@ impl ChessApp {
             arrow_drag_current: None,
             search_snapshots: Vec::new(),
             search_root: None,
+            copy_feedback: None,
         }
     }
 
@@ -223,6 +98,7 @@ impl ChessApp {
         self.arrow_drag_current = None;
         self.search_snapshots.clear();
         self.search_root = None;
+        self.copy_feedback = None;
         self.sync_status();
     }
 
@@ -253,8 +129,8 @@ impl ChessApp {
             match event {
                 EngineEvent::Snapshot(snapshot) => {
                     self.search_snapshots.push(snapshot);
-                    if self.search_snapshots.len() > 256 {
-                        let excess = self.search_snapshots.len() - 256;
+                    if self.search_snapshots.len() > SEARCH_SNAPSHOT_LIMIT {
+                        let excess = self.search_snapshots.len() - SEARCH_SNAPSHOT_LIMIT;
                         self.search_snapshots.drain(0..excess);
                     }
                 }
@@ -348,6 +224,10 @@ impl ChessApp {
         move_text.push_str(result);
 
         format!("[Event \"Chessplate\"]\n[Site \"Local\"]\n[Result \"{result}\"]\n\n{move_text}")
+    }
+
+    fn set_copy_feedback(&mut self, message: &str) {
+        self.copy_feedback = Some((message.to_owned(), Instant::now()));
     }
 
     fn set_selection(&mut self, square: u8) {
@@ -874,11 +754,16 @@ impl ChessApp {
         ui.horizontal(|ui| {
             if ui.button("Copy State").clicked() {
                 ui.ctx().copy_text(self.position.to_fen());
+                self.set_copy_feedback("Copied FEN state");
             }
             if ui.button("Copy Game").clicked() {
                 ui.ctx().copy_text(self.game_to_pgn());
+                self.set_copy_feedback("Copied PGN game");
             }
         });
+        if let Some((message, _)) = &self.copy_feedback {
+            ui.label(RichText::new(message).small().italics());
+        }
 
         ui.separator();
         ui.label("Moves");
@@ -907,11 +792,10 @@ impl ChessApp {
         let palette = self.theme.palette();
 
         let selected = self.selected_square;
-        let selected_targets = self
-            .selected_moves
-            .iter()
-            .map(|mv| mv.to)
-            .collect::<Vec<_>>();
+        let mut selected_targets = [false; 64];
+        for mv in &self.selected_moves {
+            selected_targets[mv.to as usize] = true;
+        }
 
         let previous_padding = ui.spacing().button_padding;
         ui.spacing_mut().button_padding = Vec2::ZERO;
@@ -936,7 +820,7 @@ impl ChessApp {
 
                                 if Some(square) == selected {
                                     fill = palette.selected;
-                                } else if selected_targets.contains(&square) {
+                                } else if selected_targets[square as usize] {
                                     fill = palette.target;
                                 }
 
@@ -978,6 +862,14 @@ impl ChessApp {
 
 impl eframe::App for ChessApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self
+            .copy_feedback
+            .as_ref()
+            .is_some_and(|(_, at)| at.elapsed().as_secs_f32() > COPY_FEEDBACK_SECONDS)
+        {
+            self.copy_feedback = None;
+        }
+
         let should_clear_arrows = ctx.input(|i| {
             i.key_pressed(egui::Key::Escape) || i.pointer.button_pressed(PointerButton::Primary)
         });
@@ -1028,573 +920,4 @@ impl eframe::App for ChessApp {
             ctx.request_repaint_after(Duration::from_millis(30));
         }
     }
-}
-
-const OPENING_BOOK: &[OpeningLine] = &[
-    OpeningLine {
-        name: "King's Pawn Game",
-        uci_moves: &["e2e4", "e7e5"],
-    },
-    OpeningLine {
-        name: "Italian Game",
-        uci_moves: &["e2e4", "e7e5", "g1f3", "b8c6", "f1c4"],
-    },
-    OpeningLine {
-        name: "Ruy Lopez",
-        uci_moves: &["e2e4", "e7e5", "g1f3", "b8c6", "f1b5"],
-    },
-    OpeningLine {
-        name: "Scotch Game",
-        uci_moves: &["e2e4", "e7e5", "g1f3", "b8c6", "d2d4"],
-    },
-    OpeningLine {
-        name: "Petrov Defense",
-        uci_moves: &["e2e4", "e7e5", "g1f3", "g8f6"],
-    },
-    OpeningLine {
-        name: "Sicilian Defense",
-        uci_moves: &["e2e4", "c7c5"],
-    },
-    OpeningLine {
-        name: "French Defense",
-        uci_moves: &["e2e4", "e7e6"],
-    },
-    OpeningLine {
-        name: "Caro-Kann Defense",
-        uci_moves: &["e2e4", "c7c6"],
-    },
-    OpeningLine {
-        name: "Pirc Defense",
-        uci_moves: &["e2e4", "d7d6"],
-    },
-    OpeningLine {
-        name: "Scandinavian Defense",
-        uci_moves: &["e2e4", "d7d5"],
-    },
-    OpeningLine {
-        name: "Queen's Gambit",
-        uci_moves: &["d2d4", "d7d5", "c2c4"],
-    },
-    OpeningLine {
-        name: "Queen's Gambit Accepted",
-        uci_moves: &["d2d4", "d7d5", "c2c4", "d5c4"],
-    },
-    OpeningLine {
-        name: "Queen's Gambit Declined",
-        uci_moves: &["d2d4", "d7d5", "c2c4", "e7e6"],
-    },
-    OpeningLine {
-        name: "Slav Defense",
-        uci_moves: &["d2d4", "d7d5", "c2c4", "c7c6"],
-    },
-    OpeningLine {
-        name: "King's Indian Defense",
-        uci_moves: &["d2d4", "g8f6", "c2c4", "g7g6"],
-    },
-    OpeningLine {
-        name: "Nimzo-Indian Defense",
-        uci_moves: &["d2d4", "g8f6", "c2c4", "e7e6", "b1c3", "f8b4"],
-    },
-    OpeningLine {
-        name: "Dutch Defense",
-        uci_moves: &["d2d4", "f7f5"],
-    },
-    OpeningLine {
-        name: "English Opening",
-        uci_moves: &["c2c4"],
-    },
-    OpeningLine {
-        name: "Reti Opening",
-        uci_moves: &["g1f3"],
-    },
-    OpeningLine {
-        name: "London System",
-        uci_moves: &["d2d4", "d7d5", "g1f3", "g8f6", "c1f4"],
-    },
-];
-
-fn phase_names(position: &Position, move_log: &[String]) -> PhaseNames {
-    let phase = classify_phase(position, move_log.len());
-    let opening_name = detect_opening(move_log).unwrap_or("Unclassified Opening");
-
-    let middlegame_name = if phase == GamePhase::Opening {
-        "Not reached yet"
-    } else {
-        middlegame_theme(position)
-    };
-
-    let endgame_name = if phase == GamePhase::Endgame {
-        endgame_theme(position)
-    } else {
-        "Not reached yet"
-    };
-
-    PhaseNames {
-        current_phase: phase.name(),
-        opening_name,
-        middlegame_name,
-        endgame_name,
-    }
-}
-
-fn detect_opening(move_log: &[String]) -> Option<&'static str> {
-    let mut best: Option<&OpeningLine> = None;
-
-    for line in OPENING_BOOK {
-        if move_log.len() < line.uci_moves.len() {
-            continue;
-        }
-
-        let matches = line
-            .uci_moves
-            .iter()
-            .zip(move_log.iter())
-            .all(|(expected, played)| *expected == played.as_str());
-
-        if !matches {
-            continue;
-        }
-
-        if best.is_none_or(|current| line.uci_moves.len() > current.uci_moves.len()) {
-            best = Some(line);
-        }
-    }
-
-    best.map(|line| line.name)
-}
-
-fn classify_phase(position: &Position, move_count: usize) -> GamePhase {
-    let material = material_snapshot(position);
-
-    if is_endgame(material) {
-        return GamePhase::Endgame;
-    }
-
-    if move_count <= 20 && material.non_pawn_material >= 6_200 && material.total_piece_count >= 24 {
-        return GamePhase::Opening;
-    }
-
-    GamePhase::Middlegame
-}
-
-fn is_endgame(material: MaterialSnapshot) -> bool {
-    let queen_count = material.white_queens + material.black_queens;
-    let minor_count = material.bishops + material.knights;
-
-    if material.non_pawn_material <= 2_400 {
-        return true;
-    }
-
-    if queen_count == 0 && material.rooks <= 2 && minor_count <= 4 {
-        return true;
-    }
-
-    if queen_count <= 1 && material.rooks <= 1 && minor_count <= 2 {
-        return true;
-    }
-
-    false
-}
-
-fn middlegame_theme(position: &Position) -> &'static str {
-    let material = material_snapshot(position);
-    let queen_count = material.white_queens + material.black_queens;
-
-    if has_opposite_side_castling(position) {
-        return "Opposite-Side Castling Attack";
-    }
-
-    if queen_count == 0 {
-        return "Queenless Middlegame";
-    }
-
-    if center_is_closed(position) {
-        return "Closed Center Middlegame";
-    }
-
-    if center_is_open(position) {
-        return "Open Center Middlegame";
-    }
-
-    "Classical Piece Middlegame"
-}
-
-fn endgame_theme(position: &Position) -> &'static str {
-    let material = material_snapshot(position);
-    let queen_count = material.white_queens + material.black_queens;
-    let minor_count = material.bishops + material.knights;
-
-    if material.total_piece_count == 2 {
-        return "Bare Kings";
-    }
-
-    if material.non_pawn_material <= 200 && material.pawns > 0 {
-        return "King and Pawn Endgame";
-    }
-
-    if is_opposite_colored_bishop_endgame(position) {
-        return "Opposite-Colored Bishops Endgame";
-    }
-
-    if material.rooks > 0 && queen_count == 0 && minor_count <= 2 {
-        return "Rook Endgame";
-    }
-
-    if queen_count > 0 && material.rooks <= 1 && minor_count <= 2 {
-        return "Queen Endgame";
-    }
-
-    if minor_count > 0 && material.rooks == 0 && queen_count == 0 {
-        return "Minor-Piece Endgame";
-    }
-
-    "Technical Endgame"
-}
-
-fn material_snapshot(position: &Position) -> MaterialSnapshot {
-    let mut snapshot = MaterialSnapshot::default();
-
-    for (_, piece) in position.pieces() {
-        snapshot.total_piece_count = snapshot.total_piece_count.saturating_add(1);
-        match piece.kind {
-            PieceKind::Pawn => snapshot.pawns = snapshot.pawns.saturating_add(1),
-            PieceKind::Knight => {
-                snapshot.knights = snapshot.knights.saturating_add(1);
-                snapshot.non_pawn_material += 320;
-            }
-            PieceKind::Bishop => {
-                snapshot.bishops = snapshot.bishops.saturating_add(1);
-                snapshot.non_pawn_material += 330;
-            }
-            PieceKind::Rook => {
-                snapshot.rooks = snapshot.rooks.saturating_add(1);
-                snapshot.non_pawn_material += 500;
-            }
-            PieceKind::Queen => {
-                if piece.color == Color::White {
-                    snapshot.white_queens = snapshot.white_queens.saturating_add(1);
-                } else {
-                    snapshot.black_queens = snapshot.black_queens.saturating_add(1);
-                }
-                snapshot.non_pawn_material += 900;
-            }
-            PieceKind::King => {}
-        }
-    }
-
-    snapshot
-}
-
-fn has_opposite_side_castling(position: &Position) -> bool {
-    let white_king = king_square(position, Color::White);
-    let black_king = king_square(position, Color::Black);
-    let (Some(white_king), Some(black_king)) = (white_king, black_king) else {
-        return false;
-    };
-
-    let white_side = castled_side(white_king, Color::White);
-    let black_side = castled_side(black_king, Color::Black);
-
-    matches!((white_side, black_side), (Some(a), Some(b)) if a != b)
-}
-
-fn castled_side(king_square: u8, color: Color) -> Option<i8> {
-    match (color, king_square) {
-        (Color::White, 6) | (Color::Black, 62) => Some(1),
-        (Color::White, 2) | (Color::Black, 58) => Some(-1),
-        _ => None,
-    }
-}
-
-fn king_square(position: &Position, color: Color) -> Option<u8> {
-    position.pieces().find_map(|(square, piece)| {
-        if piece.color == color && piece.kind == PieceKind::King {
-            Some(square)
-        } else {
-            None
-        }
-    })
-}
-
-fn center_is_open(position: &Position) -> bool {
-    let central_pawns = position
-        .pieces()
-        .filter(|(square, piece)| {
-            piece.kind == PieceKind::Pawn && ((*square % 8) == 3 || (*square % 8) == 4)
-        })
-        .count();
-    central_pawns <= 1
-}
-
-fn center_is_closed(position: &Position) -> bool {
-    let d4_locked =
-        is_pawn_at(position, 27, Color::White) && is_pawn_at(position, 35, Color::Black);
-    let e4_locked =
-        is_pawn_at(position, 28, Color::White) && is_pawn_at(position, 36, Color::Black);
-    d4_locked || e4_locked
-}
-
-fn is_pawn_at(position: &Position, square: u8, color: Color) -> bool {
-    position.piece_at(square)
-        == Some(Piece {
-            color,
-            kind: PieceKind::Pawn,
-        })
-}
-
-fn is_opposite_colored_bishop_endgame(position: &Position) -> bool {
-    let material = material_snapshot(position);
-    if material.rooks > 0
-        || material.white_queens + material.black_queens > 0
-        || material.knights > 0
-    {
-        return false;
-    }
-
-    let mut white_bishop_square = None;
-    let mut black_bishop_square = None;
-
-    for (square, piece) in position.pieces() {
-        if piece.kind != PieceKind::Bishop {
-            continue;
-        }
-
-        match piece.color {
-            Color::White => {
-                if white_bishop_square.is_some() {
-                    return false;
-                }
-                white_bishop_square = Some(square);
-            }
-            Color::Black => {
-                if black_bishop_square.is_some() {
-                    return false;
-                }
-                black_bishop_square = Some(square);
-            }
-        }
-    }
-
-    let (Some(white_square), Some(black_square)) = (white_bishop_square, black_bishop_square)
-    else {
-        return false;
-    };
-
-    square_color(white_square) != square_color(black_square)
-}
-
-fn square_color(square: u8) -> u8 {
-    let file = square % 8;
-    let rank = square / 8;
-    (file + rank) % 2
-}
-
-fn best_move_stability(history: &[SearchSnapshot]) -> f32 {
-    if history.len() <= 1 {
-        return 1.0;
-    }
-
-    let tail = history.iter().rev().take(12).collect::<Vec<_>>();
-    let tail = tail.into_iter().rev().collect::<Vec<_>>();
-    let Some(reference) = tail.last().map(|snapshot| snapshot.best_move) else {
-        return 1.0;
-    };
-
-    let matches = tail
-        .iter()
-        .filter(|snapshot| snapshot.best_move == reference)
-        .count();
-    matches as f32 / tail.len() as f32
-}
-
-fn eval_volatility_cp(history: &[SearchSnapshot]) -> f32 {
-    let tail = history.iter().rev().take(14).collect::<Vec<_>>();
-    if tail.len() < 2 {
-        return 0.0;
-    }
-
-    let mut total = 0.0;
-    let mut count = 0.0;
-    for pair in tail.windows(2) {
-        let a = pair[0].best_score_cp as f32;
-        let b = pair[1].best_score_cp as f32;
-        total += (a - b).abs();
-        count += 1.0;
-    }
-
-    if count == 0.0 { 0.0 } else { total / count }
-}
-
-fn format_big_number(value: u64) -> String {
-    if value >= 1_000_000_000 {
-        format!("{:.2}B", value as f64 / 1_000_000_000.0)
-    } else if value >= 1_000_000 {
-        format!("{:.2}M", value as f64 / 1_000_000.0)
-    } else if value >= 1_000 {
-        format!("{:.1}K", value as f64 / 1_000.0)
-    } else {
-        value.to_string()
-    }
-}
-
-fn load_piece_textures(ctx: &egui::Context) -> HashMap<Piece, egui::TextureHandle> {
-    let mut textures = HashMap::new();
-
-    register_piece_texture(
-        &mut textures,
-        ctx,
-        Piece {
-            color: Color::White,
-            kind: PieceKind::King,
-        },
-        "piece_wk",
-        include_bytes!("../assets/pieces/wK.svg"),
-    );
-    register_piece_texture(
-        &mut textures,
-        ctx,
-        Piece {
-            color: Color::White,
-            kind: PieceKind::Queen,
-        },
-        "piece_wq",
-        include_bytes!("../assets/pieces/wQ.svg"),
-    );
-    register_piece_texture(
-        &mut textures,
-        ctx,
-        Piece {
-            color: Color::White,
-            kind: PieceKind::Rook,
-        },
-        "piece_wr",
-        include_bytes!("../assets/pieces/wR.svg"),
-    );
-    register_piece_texture(
-        &mut textures,
-        ctx,
-        Piece {
-            color: Color::White,
-            kind: PieceKind::Bishop,
-        },
-        "piece_wb",
-        include_bytes!("../assets/pieces/wB.svg"),
-    );
-    register_piece_texture(
-        &mut textures,
-        ctx,
-        Piece {
-            color: Color::White,
-            kind: PieceKind::Knight,
-        },
-        "piece_wn",
-        include_bytes!("../assets/pieces/wN.svg"),
-    );
-    register_piece_texture(
-        &mut textures,
-        ctx,
-        Piece {
-            color: Color::White,
-            kind: PieceKind::Pawn,
-        },
-        "piece_wp",
-        include_bytes!("../assets/pieces/wP.svg"),
-    );
-    register_piece_texture(
-        &mut textures,
-        ctx,
-        Piece {
-            color: Color::Black,
-            kind: PieceKind::King,
-        },
-        "piece_bk",
-        include_bytes!("../assets/pieces/bK.svg"),
-    );
-    register_piece_texture(
-        &mut textures,
-        ctx,
-        Piece {
-            color: Color::Black,
-            kind: PieceKind::Queen,
-        },
-        "piece_bq",
-        include_bytes!("../assets/pieces/bQ.svg"),
-    );
-    register_piece_texture(
-        &mut textures,
-        ctx,
-        Piece {
-            color: Color::Black,
-            kind: PieceKind::Rook,
-        },
-        "piece_br",
-        include_bytes!("../assets/pieces/bR.svg"),
-    );
-    register_piece_texture(
-        &mut textures,
-        ctx,
-        Piece {
-            color: Color::Black,
-            kind: PieceKind::Bishop,
-        },
-        "piece_bb",
-        include_bytes!("../assets/pieces/bB.svg"),
-    );
-    register_piece_texture(
-        &mut textures,
-        ctx,
-        Piece {
-            color: Color::Black,
-            kind: PieceKind::Knight,
-        },
-        "piece_bn",
-        include_bytes!("../assets/pieces/bN.svg"),
-    );
-    register_piece_texture(
-        &mut textures,
-        ctx,
-        Piece {
-            color: Color::Black,
-            kind: PieceKind::Pawn,
-        },
-        "piece_bp",
-        include_bytes!("../assets/pieces/bP.svg"),
-    );
-
-    textures
-}
-
-fn register_piece_texture(
-    textures: &mut HashMap<Piece, egui::TextureHandle>,
-    ctx: &egui::Context,
-    piece: Piece,
-    texture_name: &str,
-    svg_data: &[u8],
-) {
-    let texture = render_svg_texture(ctx, texture_name, svg_data);
-    textures.insert(piece, texture);
-}
-
-fn render_svg_texture(
-    ctx: &egui::Context,
-    texture_name: &str,
-    svg_data: &[u8],
-) -> egui::TextureHandle {
-    let tree = usvg::Tree::from_data(svg_data, &usvg::Options::default())
-        .unwrap_or_else(|err| panic!("failed to parse SVG {texture_name}: {err}"));
-
-    let width = tree.size().width().round().max(1.0) as u32;
-    let height = tree.size().height().round().max(1.0) as u32;
-
-    let mut pixmap = tiny_skia::Pixmap::new(width, height)
-        .unwrap_or_else(|| panic!("failed to allocate pixmap for {texture_name}"));
-    {
-        let mut pixmap_mut = pixmap.as_mut();
-        resvg::render(&tree, tiny_skia::Transform::default(), &mut pixmap_mut);
-    }
-
-    let image =
-        egui::ColorImage::from_rgba_unmultiplied([width as usize, height as usize], pixmap.data());
-
-    ctx.load_texture(texture_name.to_owned(), image, egui::TextureOptions::LINEAR)
 }

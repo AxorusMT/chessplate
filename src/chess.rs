@@ -817,18 +817,18 @@ fn piece_to_fen_char(piece: Piece) -> char {
 
 pub fn piece_to_unicode(piece: Piece) -> &'static str {
     match (piece.color, piece.kind) {
-        (Color::White, PieceKind::Pawn) => "?",
-        (Color::White, PieceKind::Knight) => "?",
-        (Color::White, PieceKind::Bishop) => "?",
-        (Color::White, PieceKind::Rook) => "?",
-        (Color::White, PieceKind::Queen) => "?",
-        (Color::White, PieceKind::King) => "?",
-        (Color::Black, PieceKind::Pawn) => "?",
-        (Color::Black, PieceKind::Knight) => "?",
-        (Color::Black, PieceKind::Bishop) => "?",
-        (Color::Black, PieceKind::Rook) => "?",
-        (Color::Black, PieceKind::Queen) => "?",
-        (Color::Black, PieceKind::King) => "?",
+        (Color::White, PieceKind::Pawn) => "\u{2659}",
+        (Color::White, PieceKind::Knight) => "\u{2658}",
+        (Color::White, PieceKind::Bishop) => "\u{2657}",
+        (Color::White, PieceKind::Rook) => "\u{2656}",
+        (Color::White, PieceKind::Queen) => "\u{2655}",
+        (Color::White, PieceKind::King) => "\u{2654}",
+        (Color::Black, PieceKind::Pawn) => "\u{265F}",
+        (Color::Black, PieceKind::Knight) => "\u{265E}",
+        (Color::Black, PieceKind::Bishop) => "\u{265D}",
+        (Color::Black, PieceKind::Rook) => "\u{265C}",
+        (Color::Black, PieceKind::Queen) => "\u{265B}",
+        (Color::Black, PieceKind::King) => "\u{265A}",
     }
 }
 
