@@ -7,7 +7,8 @@ use eframe::egui::{self, Color32, PointerButton, Pos2, Rect, RichText, Stroke, V
 use resvg::{tiny_skia, usvg};
 
 use crate::chess::{
-    Color, GameStatus, Move, Piece, PieceKind, Position, move_to_coord, piece_to_unicode,
+    Color, GameStatus, Move, Piece, PieceKind, Position, move_to_coord, move_to_san,
+    piece_to_unicode,
 };
 use crate::engine::{EngineConfig, best_move, profile_for_elo};
 
@@ -68,6 +69,7 @@ pub struct ChessApp {
     bot_elo: u16,
     status: GameStatus,
     move_log: Vec<String>,
+    move_history: Vec<Move>,
     thinking: bool,
     engine_rx: Option<Receiver<Option<Move>>>,
     piece_textures: HashMap<Piece, egui::TextureHandle>,
@@ -87,6 +89,7 @@ impl ChessApp {
             human_color: Color::White,
             bot_elo: 1600,
             move_log: Vec::new(),
+            move_history: Vec::new(),
             thinking: false,
             engine_rx: None,
             piece_textures: load_piece_textures(&cc.egui_ctx),
@@ -105,6 +108,7 @@ impl ChessApp {
         self.selected_square = None;
         self.selected_moves.clear();
         self.move_log.clear();
+        self.move_history.clear();
         self.thinking = false;
         self.engine_rx = None;
         self.drawn_arrows.clear();
@@ -169,9 +173,53 @@ impl ChessApp {
         let notation = move_to_coord(mv);
         self.position.make_move(mv);
         self.move_log.push(notation);
+        self.move_history.push(mv);
         self.selected_square = None;
         self.selected_moves.clear();
         self.sync_status();
+    }
+
+    fn game_result_tag(&self) -> &'static str {
+        match self.status {
+            GameStatus::Ongoing => "*",
+            GameStatus::Checkmate(winner) => {
+                if winner == Color::White {
+                    "1-0"
+                } else {
+                    "0-1"
+                }
+            }
+            GameStatus::Stalemate | GameStatus::DrawFiftyMove => "1/2-1/2",
+        }
+    }
+
+    fn game_to_pgn(&self) -> String {
+        let result = self.game_result_tag();
+        let mut replay = Position::startpos();
+        let mut move_text = String::new();
+
+        for (index, mv) in self.move_history.iter().enumerate() {
+            let san = move_to_san(&replay, *mv);
+            if index % 2 == 0 {
+                if !move_text.is_empty() {
+                    move_text.push(' ');
+                }
+                move_text.push_str(&format!("{}.", (index / 2) + 1));
+                move_text.push(' ');
+                move_text.push_str(&san);
+            } else {
+                move_text.push(' ');
+                move_text.push_str(&san);
+            }
+            let _ = replay.make_move(*mv);
+        }
+
+        if !move_text.is_empty() {
+            move_text.push(' ');
+        }
+        move_text.push_str(result);
+
+        format!("[Event \"Chessplate\"]\n[Site \"Local\"]\n[Result \"{result}\"]\n\n{move_text}")
     }
 
     fn set_selection(&mut self, square: u8) {
@@ -460,6 +508,15 @@ impl ChessApp {
             self.human_color = Color::Black;
             self.new_game();
         }
+
+        ui.horizontal(|ui| {
+            if ui.button("Copy State").clicked() {
+                ui.ctx().copy_text(self.position.to_fen());
+            }
+            if ui.button("Copy Game").clicked() {
+                ui.ctx().copy_text(self.game_to_pgn());
+            }
+        });
 
         ui.separator();
         ui.label("Moves");

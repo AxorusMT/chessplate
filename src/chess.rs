@@ -207,6 +207,69 @@ impl Position {
         }
     }
 
+    pub fn to_fen(&self) -> String {
+        let mut board = String::new();
+        for rank in (0..8).rev() {
+            let mut empty = 0;
+            for file in 0..8 {
+                let square = (rank * 8 + file) as u8;
+                match self.piece_at(square) {
+                    Some(piece) => {
+                        if empty > 0 {
+                            board.push(char::from(b'0' + empty));
+                            empty = 0;
+                        }
+                        board.push(piece_to_fen_char(piece));
+                    }
+                    None => {
+                        empty += 1;
+                    }
+                }
+            }
+            if empty > 0 {
+                board.push(char::from(b'0' + empty));
+            }
+            if rank > 0 {
+                board.push('/');
+            }
+        }
+
+        let castling = if self.castling_rights == 0 {
+            "-".to_owned()
+        } else {
+            let mut rights = String::new();
+            if self.castling_rights & CASTLE_WHITE_KINGSIDE != 0 {
+                rights.push('K');
+            }
+            if self.castling_rights & CASTLE_WHITE_QUEENSIDE != 0 {
+                rights.push('Q');
+            }
+            if self.castling_rights & CASTLE_BLACK_KINGSIDE != 0 {
+                rights.push('k');
+            }
+            if self.castling_rights & CASTLE_BLACK_QUEENSIDE != 0 {
+                rights.push('q');
+            }
+            rights
+        };
+
+        let en_passant = self
+            .en_passant
+            .map(square_name)
+            .unwrap_or_else(|| "-".to_owned());
+
+        let side = if self.side_to_move == Color::White {
+            "w"
+        } else {
+            "b"
+        };
+
+        format!(
+            "{board} {side} {castling} {en_passant} {} {}",
+            self.halfmove_clock, self.fullmove_number
+        )
+    }
+
     pub fn make_move(&mut self, mv: Move) -> bool {
         let Some(mut moving_piece) = self.piece_at(mv.from) else {
             return false;
@@ -735,6 +798,23 @@ impl Position {
     }
 }
 
+fn piece_to_fen_char(piece: Piece) -> char {
+    let ch = match piece.kind {
+        PieceKind::Pawn => 'p',
+        PieceKind::Knight => 'n',
+        PieceKind::Bishop => 'b',
+        PieceKind::Rook => 'r',
+        PieceKind::Queen => 'q',
+        PieceKind::King => 'k',
+    };
+
+    if piece.color == Color::White {
+        ch.to_ascii_uppercase()
+    } else {
+        ch
+    }
+}
+
 pub fn piece_to_unicode(piece: Piece) -> &'static str {
     match (piece.color, piece.kind) {
         (Color::White, PieceKind::Pawn) => "?",
@@ -770,6 +850,101 @@ pub fn move_to_coord(mv: Move) -> String {
         });
     }
     text
+}
+
+pub fn move_to_san(position: &Position, mv: Move) -> String {
+    let Some(moving_piece) = position.piece_at(mv.from) else {
+        return move_to_coord(mv);
+    };
+
+    let mut san = if mv.is_castling {
+        if mv.to > mv.from {
+            "O-O".to_owned()
+        } else {
+            "O-O-O".to_owned()
+        }
+    } else {
+        let is_capture = position.is_capture(mv);
+        let mut base = String::new();
+
+        if moving_piece.kind == PieceKind::Pawn {
+            if is_capture {
+                base.push((b'a' + (mv.from % 8)) as char);
+                base.push('x');
+            }
+            base.push_str(&square_name(mv.to));
+
+            if let Some(promotion) = mv.promotion {
+                base.push('=');
+                base.push(piece_kind_letter(promotion));
+            }
+        } else {
+            base.push(piece_kind_letter(moving_piece.kind));
+            append_disambiguation(position, mv, moving_piece.kind, &mut base);
+            if is_capture {
+                base.push('x');
+            }
+            base.push_str(&square_name(mv.to));
+        }
+
+        base
+    };
+
+    let mut next = position.clone();
+    if next.make_move(mv) {
+        if matches!(next.game_status(), GameStatus::Checkmate(_)) {
+            san.push('#');
+        } else if next.is_in_check(next.side_to_move) {
+            san.push('+');
+        }
+    }
+
+    san
+}
+
+fn append_disambiguation(position: &Position, mv: Move, kind: PieceKind, san: &mut String) {
+    let from_file = mv.from % 8;
+    let from_rank = mv.from / 8;
+
+    let mut needs_file = false;
+    let mut needs_rank = false;
+
+    for other in position.legal_moves() {
+        if other.to != mv.to || other.from == mv.from {
+            continue;
+        }
+
+        if position
+            .piece_at(other.from)
+            .is_some_and(|piece| piece.kind == kind)
+        {
+            if (other.from % 8) == from_file {
+                needs_rank = true;
+            } else if (other.from / 8) == from_rank {
+                needs_file = true;
+            } else {
+                needs_file = true;
+            }
+        }
+    }
+
+    if needs_file {
+        san.push((b'a' + from_file) as char);
+    }
+    if needs_rank {
+        san.push((b'1' + from_rank) as char);
+    }
+}
+
+fn piece_kind_letter(kind: PieceKind) -> char {
+    match kind {
+        PieceKind::Knight => 'N',
+        PieceKind::Bishop => 'B',
+        PieceKind::Rook => 'R',
+        PieceKind::Queen => 'Q',
+        PieceKind::King => 'K',
+        PieceKind::Pawn => 'P',
+    }
 }
 
 pub fn file_of(square: u8) -> i8 {
@@ -866,5 +1041,54 @@ mod tests {
         play(&mut position, "d8h4");
 
         assert_eq!(position.game_status(), GameStatus::Checkmate(Color::Black));
+    }
+
+    #[test]
+    fn start_position_fen_is_correct() {
+        let position = Position::startpos();
+        assert_eq!(
+            position.to_fen(),
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        );
+    }
+
+    #[test]
+    fn san_notation_for_opening_and_mate() {
+        let mut position = Position::startpos();
+
+        let e4 = position
+            .legal_moves()
+            .into_iter()
+            .find(|mv| move_to_coord(*mv) == "e2e4")
+            .expect("missing e2e4");
+        assert_eq!(move_to_san(&position, e4), "e4");
+        assert!(position.make_move(e4));
+
+        let e5 = position
+            .legal_moves()
+            .into_iter()
+            .find(|mv| move_to_coord(*mv) == "e7e5")
+            .expect("missing e7e5");
+        assert_eq!(move_to_san(&position, e5), "e5");
+        assert!(position.make_move(e5));
+
+        let nf3 = position
+            .legal_moves()
+            .into_iter()
+            .find(|mv| move_to_coord(*mv) == "g1f3")
+            .expect("missing g1f3");
+        assert_eq!(move_to_san(&position, nf3), "Nf3");
+        assert!(position.make_move(nf3));
+
+        let mut mate_position = Position::startpos();
+        play(&mut mate_position, "f2f3");
+        play(&mut mate_position, "e7e5");
+        play(&mut mate_position, "g2g4");
+        let qh4 = mate_position
+            .legal_moves()
+            .into_iter()
+            .find(|mv| move_to_coord(*mv) == "d8h4")
+            .expect("missing d8h4");
+        assert_eq!(move_to_san(&mate_position, qh4), "Qh4#");
     }
 }
