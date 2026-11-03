@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Chessplate | Rust Chess Bot Desktop App</title>
-  <meta name="description" content="Chessplate is a native Rust chess app with a local bot, adjustable Elo, rich game insights, line drawing, PGN/FEN copy tools, and 90 visual themes.">
+  <title>Chessplate | C Chess Bot Desktop App</title>
+  <meta name="description" content="Chessplate is a native, dependency-free C chess app with a local bot, adjustable Elo, rich game insights, line drawing, PGN/FEN copy tools, and 90 visual themes.">
   <link rel="icon" type="image/svg+xml" href="logo.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -35,11 +35,11 @@
   <main id="top">
     <section class="hero container reveal">
       <div class="hero-copy">
-        <p class="eyebrow">Native Rust Chess Engine + GUI</p>
+        <p class="eyebrow">Native C Chess Engine + GUI</p>
         <h1>Play a serious chess bot that explains its thinking as you play.</h1>
         <p class="lede">
           Chessplate gives you a desktop board, a configurable Elo range, and a live engine telemetry panel.
-          It is built as a local-first Rust app so games are fast, private, and always available.
+          It is built as a local-first app in plain C with no third-party libraries, so games are fast, private, and always available.
         </p>
         <div class="hero-cta">
           <a class="button button-primary" href="#get-started">Run It Locally</a>
@@ -269,7 +269,7 @@
           <p class="eyebrow">Get Started</p>
           <h2>Run Chessplate in minutes.</h2>
           <p class="lede">Build and run the native app from source:</p>
-          <pre><code>cargo run --release</code></pre>
+          <pre><code>make run</code></pre>
         </div>
         <div class="steps">
           <article>
@@ -295,7 +295,7 @@
         <img class="footer-logo" src="logo.svg" alt="">
         <span>Chessplate</span>
       </p>
-      <p>Rust-powered chess engine and native desktop GUI.</p>
+      <p>Plain-C chess engine and native desktop GUI.</p>
     </div>
   </footer>
 </body>

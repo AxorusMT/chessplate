@@ -1,6 +1,8 @@
 # Chessplate
 
-Chessplate is a native Rust chess application with a built-in engine, live search telemetry, a rich board UI, and a companion static website.
+Chessplate is a native chess application written in plain C99 with a built-in engine, live search telemetry, a rich board UI, and a companion static website.
+
+It has **no third-party dependencies**: the window, input and clipboard use the operating system's own APIs (Xlib on Linux/BSD, Win32 on Windows), and everything else -- 2D rasterization, SVG rendering, text, widgets, threading glue -- is implemented in the repository.
 
 It is designed for practical local play and analysis:
 - Play against a configurable-strength bot.
@@ -14,6 +16,7 @@ It is designed for practical local play and analysis:
 ## Table of Contents
 - [Highlights](#highlights)
 - [Repository Layout](#repository-layout)
+- [Architecture](#architecture)
 - [Getting Started](#getting-started)
 - [Desktop App Usage](#desktop-app-usage)
 - [How To Play Chess (Quick Guide)](#how-to-play-chess-quick-guide)
@@ -32,8 +35,9 @@ It is designed for practical local play and analysis:
 ## Highlights
 
 ### Desktop app
-- Native desktop GUI via `eframe`/`egui`.
-- Local engine (no network dependency).
+- Native desktop GUI in plain C: software-rendered, anti-aliased, no toolkit.
+- Backends: X11 (Linux/BSD) and Win32 (Windows).
+- Local engine running on a background thread (no network dependency).
 - Elo slider range: `600` to `2800`.
 - Live engine panel ("Search Prism") rendered to the right of the board.
 - Opening/middlegame/endgame naming in sidebar.
@@ -44,7 +48,7 @@ It is designed for practical local play and analysis:
   - `Copy State` -> FEN of current position.
   - `Copy Game` -> PGN with SAN move text.
 - Large generated board theme catalog (90 themes).
-- App window icon loaded from project SVG logo.
+- App window icon rendered from the project SVG logo by the built-in SVG renderer.
 
 ### Website (`site/`)
 - Pure HTML/CSS/JS marketing/documentation site.
@@ -59,29 +63,32 @@ It is designed for practical local play and analysis:
 ```text
 .
 |-- assets/
-|   |-- logo/
-|   |   `-- chessplate-logo.svg
-|   `-- pieces/
-|       |-- wK.svg ... wP.svg
-|       `-- bK.svg ... bP.svg
-|-- site/
-|   |-- index.html
-|   |-- styles.css
-|   |-- script.js
-|   `-- logo.svg
+|   |-- logo/chessplate-logo.svg
+|   `-- pieces/wK.svg ... bP.svg
+|-- site/                     static website (index.html, styles.css, script.js, logo.svg)
 |-- src/
-|   |-- app.rs
-|   |-- chess.rs
-|   |-- engine.rs
-|   |-- icon.rs
-|   |-- main.rs
-|   `-- app/
-|       |-- game_insight.rs
-|       |-- metrics.rs
-|       |-- pieces.rs
-|       `-- theme.rs
-|-- Cargo.toml
-`-- Cargo.lock
+|   |-- chess.c/.h            board, move generation, FEN, SAN
+|   |-- engine.c/.h           iterative deepening negamax + quiescence, Elo profiles
+|   |-- insight.c/.h          opening book and game-phase classification
+|   |-- metrics.c/.h          Search Prism metrics (stability, volatility, number format)
+|   |-- theme.c/.h            generated 90-theme catalog
+|   |-- app.c/.h              application state, input handling, layout, painting
+|   |-- ui.c/.h               immediate-mode widgets (buttons, slider, combo, scrolling)
+|   |-- raster.c/.h           anti-aliased path filling, stroking, gradients, images
+|   |-- svg.c/.h              small SVG renderer used for pieces and the app icon
+|   |-- text.c/.h, font.h     text layout and drawing
+|   |-- font_data.c           generated: embedded DejaVu glyph bitmaps
+|   |-- assets.c/.h           generated: embedded SVG sources
+|   |-- sys.c/.h              clock, threads, mutexes (POSIX / Win32)
+|   |-- platform.h            windowing interface
+|   |-- platform_x11.c        Xlib backend
+|   |-- platform_win32.c      Win32 backend
+|   `-- main.c                event loop
+|-- tests/tests.c             test suite (rules, perft, engine, insights, rendering, headless UI)
+|-- tools/
+|   |-- embed_assets.c        regenerates src/assets.c
+|   `-- gen_font.py           regenerates src/font_data.c (developer tool, needs Pillow)
+`-- Makefile
 ```
 
 ---
@@ -89,27 +96,45 @@ It is designed for practical local play and analysis:
 ## Getting Started
 
 ### Prerequisites
-- Rust toolchain (stable)
-- Cargo (bundled with Rust)
+- A C99 compiler (GCC or Clang).
+- Linux/BSD: Xlib development headers (`libx11-dev` on Debian/Ubuntu, `libX11-devel` on Fedora).
+- Windows: MinGW-w64 (native or as a cross compiler).
 
-Project currently targets:
-- Edition: `2024`
-- Dependencies:
-  - `eframe = "0.30"`
-  - `rand = "0.8.5"`
-  - `resvg = "0.45.1"`
+Nothing else is needed: generated sources (`src/font_data.c`, `src/assets.c`) are committed.
 
-### Run the desktop app
+### Run the desktop app (Linux/BSD)
 
 ```bash
-cargo run
+make run
 ```
 
-### Run optimized build
+The binary is `build/chessplate`. Without `make`:
 
 ```bash
-cargo run --release
+cc -O2 -std=c99 -D_POSIX_C_SOURCE=200809L -o chessplate \
+   $(ls src/*.c | grep -v platform_win32) -lX11 -lpthread -lm
 ```
+
+### Build for Windows
+
+Cross-compiling from Linux:
+
+```bash
+make windows          # -> build/chessplate.exe
+```
+
+Natively with MinGW-w64 (MSYS2 or similar):
+
+```bash
+gcc -O2 -std=c99 -o chessplate.exe src/chess.c src/engine.c src/insight.c src/metrics.c src/theme.c ^
+    src/sys.c src/raster.c src/svg.c src/text.c src/font_data.c src/assets.c src/ui.c src/app.c ^
+    src/main.c src/platform_win32.c -mwindows -lgdi32 -luser32 -lm
+```
+
+### macOS
+
+There is no Cocoa backend. The X11 backend builds against XQuartz (`make` with
+`pkg-config` pointing at XQuartz's `x11.pc`), but this setup is untested.
 
 ### Run the website locally
 
@@ -123,6 +148,39 @@ python -m http.server 8000
 Then open:
 - `http://localhost:8000`
 
+
+---
+
+## Architecture
+
+The program is split into a portable core and a thin platform layer.
+
+```text
+ main.c  --(InputState)-->  app.c  --draws-->  Canvas (32-bit premultiplied ARGB framebuffer)
+   |                         |  \                          |
+   | platform_*.c            |   ui.c / text.c / raster.c / svg.c
+   |  window, events,        |
+   |  clipboard, present     +-- engine.c on a worker thread (sys.c), snapshots via mutex
+```
+
+- **Event loop** (`main.c`): waits for OS events (or a 30 ms tick while the engine thinks),
+  renders a full frame into a software framebuffer, and hands it to the backend
+  (`XPutImage` on X11, `SetDIBitsToDevice` on Win32).
+- **Rendering** (`raster.c`): scanline polygon filler with exact horizontal coverage and
+  8 vertical sub-samples, nonzero and even-odd fill rules, a stroker with butt/round/square
+  caps and miter/round/bevel joins, linear gradients, and premultiplied image compositing.
+- **SVG** (`svg.c`): parses the subset used by the assets -- `path` (all commands including
+  elliptical arcs), basic shapes, groups with inherited presentation attributes, `style`,
+  transforms, opacity and `linearGradient`. Pieces are rasterized at the exact on-screen
+  size and cached until the board size changes. Filters are ignored.
+- **Text** (`text.c`): pre-rasterized anti-aliased glyphs for DejaVu Sans / Sans Mono at the
+  sizes the UI uses (generated by `tools/gen_font.py`; the Bitstream Vera license is
+  embedded in `src/font_data.c`).
+- **Widgets** (`ui.c`): immediate-mode buttons, slider, combo box with a scrollable popup,
+  and scroll regions with wheel and scrollbar dragging.
+- **Engine thread**: each bot turn creates a reference-counted job. The worker pushes
+  search snapshots into the job's queue under a mutex; the UI drains it every frame.
+  Starting a new game cancels the in-flight search instead of waiting for it.
 ---
 
 ## Desktop App Usage
@@ -227,8 +285,8 @@ Checkmate the opponent king:
 This engine is a custom local engine, not Stockfish-derived code.
 
 ### Core model
-- Board representation: fixed `[Option<Piece>; 64]` array.
-- Move representation: compact `Move` struct (`from`, `to`, promotion, EP, castling flags).
+- Board representation: fixed `Piece board[64]` array, one byte per square (kind + color bits, `0` = empty).
+- Move representation: compact 4-byte `Move` struct (`from`, `to`, promotion, EP/castling flags).
 - Legal move generation:
   - Generate pseudo-legal moves by piece type.
   - Apply move on cloned position.
@@ -333,7 +391,7 @@ Visual channels:
 - Sidebar move list displays coordinate notation (UCI-like strings such as `e2e4`).
 
 ### Copy State
-- Copies current board state as FEN via `Position::to_fen()`.
+- Copies current board state as FEN via `position_to_fen()`.
 
 ### Copy Game
 - Replays internal move history and exports PGN move text in SAN format.
@@ -364,40 +422,62 @@ Properties:
 
 ## Build, Test, and Release
 
-### Format
+### Compile
 
 ```bash
-cargo fmt
-```
-
-### Type-check and compile
-
-```bash
-cargo check
+make            # build/chessplate (warnings enabled: -Wall -Wextra -Wpedantic)
+make windows    # build/chessplate.exe via MinGW-w64
 ```
 
 ### Run tests
 
 ```bash
-cargo test
+make test
+```
+
+The suite covers the original rule/notation tests plus perft reference counts
+(start position to depth 4, "Kiwipete" and other standard positions), FEN round
+trips, SAN edge cases, engine profiles and mate finding, phase naming, metrics,
+the theme catalog, SVG rendering, and a headless drive of the full UI (clicking
+squares, waiting for the engine, Copy State / Copy Game).
+
+Sanitizer run:
+
+```bash
+make clean && make test CFLAGS="-O1 -g -fsanitize=address,undefined"
+```
+
+### Regenerate embedded data
+
+```bash
+make assets                                    # after editing assets/*.svg
+python3 tools/gen_font.py > src/font_data.c    # after changing font sizes (needs Pillow + DejaVu fonts)
 ```
 
 ### Build release binary
 
 ```bash
-cargo build --release
+make CFLAGS="-O3"
 ```
 
 Binary output:
-- `target/release/chessplate.exe` (Windows)
+- `build/chessplate` (Linux/BSD)
+- `build/chessplate.exe` (Windows)
 
 ---
 
 ## Troubleshooting
 
 ### Piece images not visible
-- Confirm SVG files exist under `assets/pieces/`.
-- App falls back to Unicode chess glyphs if texture load fails.
+- Piece SVGs are compiled into the binary (`src/assets.c`); after editing `assets/`, run `make assets`.
+- The app falls back to drawing piece letters if an image cannot be rendered.
+
+### `cannot open X display`
+- The Linux build needs a running X server (or XWayland). Check `$DISPLAY`.
+
+### Clipboard is empty after the app exits (X11)
+- X11 clipboards are owned by the running program; contents disappear when it exits
+  unless a clipboard manager is running.
 
 ### Arrows disappear unexpectedly
 - Expected behavior: any primary-click event or `Esc` clears arrows.
@@ -432,7 +512,8 @@ Binary output:
 
 If you want to extend Chessplate:
 - Keep engine and UI changes separated when possible.
-- Run `cargo fmt`, `cargo check`, `cargo test` before opening PRs.
+- Run `make` (no warnings) and `make test` before opening PRs; also build `make windows` if you touch shared code.
+- Keep the core free of third-party dependencies; OS-specific code belongs in `platform_*.c` or `sys.c`.
 - Update docs (`README.md` and `site/`) when behavior changes.
 
 Useful extension targets:
